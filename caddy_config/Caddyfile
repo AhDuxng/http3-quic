@@ -1,0 +1,35 @@
+# Cau hinh Caddy cho moi truong DEVELOPMENT (local)
+# Ho tro HTTP/1.1 va HTTP/3 (QUIC)
+
+{
+    servers {
+        protocols h1 h3
+    }
+}
+
+# Cac domain cho phep truy cap (local)
+localhost, 127.0.0.1, caddy_server, 127.0.0.1.nip.io {
+
+    # Su dung TLS noi bo (tu ky) cho HTTPS local
+    tls internal
+
+    # CORS headers - cho phep frontend goi API
+    header Access-Control-Allow-Origin *
+    header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+
+    # Serve file media tinh (video chunks, manifest)
+    handle /media/* {
+        root * /srv
+        file_server
+    }
+
+    # Proxy API request den backend container
+    handle /api/* {
+        reverse_proxy backend:3000
+    }
+
+    # Proxy tat ca request khac den Vite dev server tren host
+    handle /* {
+        reverse_proxy host.docker.internal:5173
+    }
+}

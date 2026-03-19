@@ -1,0 +1,37 @@
+# Cau hinh Caddy cho moi truong PRODUCTION
+# Ho tro HTTP/1.1, HTTP/2 va HTTP/3 (QUIC)
+# TLS tu dong qua Let's Encrypt
+
+{
+    servers {
+        protocols h1 h2 h3
+    }
+}
+
+# Domain duoc truyen qua env variable $DOMAIN
+{$DOMAIN} {
+    # Nen response de giam bandwidth
+    encode zstd gzip
+
+    # CORS headers
+    header Access-Control-Allow-Origin *
+    header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+
+    # Serve file media tinh (video chunks, manifest)
+    handle /media/* {
+        root * /srv
+        file_server
+    }
+
+    # Proxy API request den backend container
+    handle /api/* {
+        reverse_proxy backend:3000
+    }
+
+    # Serve frontend SPA (fallback ve index.html cho client-side routing)
+    handle /* {
+        root * /srv/frontend
+        try_files {path} /index.html
+        file_server
+    }
+}

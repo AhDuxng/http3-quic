@@ -1,0 +1,53 @@
+# docker-compose.prod.yml - Cau hinh cho moi truong PRODUCTION
+#
+# Khac voi dev:
+#   - Dung Caddyfile.prod (TLS tu dong qua Let's Encrypt, ho tro h2)
+#   - Khong co curl-client (giam attack surface)
+#   - CORS_ORIGIN nen duoc dat thanh domain cu the
+#
+# Truoc khi deploy:
+#   1. Set bien moi truong $DOMAIN trong shell hoac file .env
+#   2. Build frontend: cd frontend && npm run build
+#   3. Chay: docker compose -f docker-compose.prod.yml up -d
+
+version: '3.8'
+
+services:
+  # Caddy - Reverse proxy voi TLS tu dong (Let's Encrypt) va HTTP/3
+  caddy:
+    image: caddy:latest
+    container_name: caddy_server
+    restart: unless-stopped
+    ports:
+      - "80:80"        # HTTP (Caddy tu redirect sang HTTPS)
+      - "443:443"      # HTTPS (HTTP/1.1, HTTP/2)
+      - "443:443/udp"  # HTTP/3 (QUIC)
+    volumes:
+      - ./caddy_config/Caddyfile.prod:/etc/caddy/Caddyfile
+      - ./media:/srv/media
+      - ./frontend/dist:/srv/frontend
+      - caddy_data:/data    # TLS certs tu Let's Encrypt
+      - caddy_config:/config
+    networks:
+      - app-network
+
+  # Backend - Node.js Express API server
+  backend:
+    build: ./backend
+    container_name: node_backend
+    networks:
+      - app-network
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3000
+      # CORS_ORIGIN nen dat thanh domain cu the o production thay vi wildcard
+      # Vi du: CORS_ORIGIN=https://yourdomain.com
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
