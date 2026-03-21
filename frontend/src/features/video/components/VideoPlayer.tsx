@@ -1,7 +1,7 @@
 // VideoPlayer.tsx - Component chinh hien thi DASH player va cac panel dieu khien.
 // Bo cuc doc: [Video | Sidebar] phia tren, [Stream Telemetry card] phia duoi.
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState, useEffect } from "react";
-import { FaPlay, FaWifi, FaSearch, FaDownload, FaNetworkWired, FaTerminal, FaEllipsisV, FaCog } from "react-icons/fa";
+import { FaPlay, FaWifi, FaSearch, FaDownload, FaNetworkWired, FaTerminal, FaEllipsisV, FaCog, FaCheck, FaEdit } from "react-icons/fa";
 import { MdLiveTv, MdHighQuality } from "react-icons/md";
 import { NETWORK_SCENARIOS, SCENARIO_ICONS } from "../constants/networkScenarios";
 import { useDashPlayer } from "../hooks/useDashPlayer";
@@ -51,6 +51,23 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [isManualMode, setIsManualMode] = useState(false);
     const [showQualityMenu, setShowQualityMenu] = useState(false);
     const qualityMenuRef = useRef<HTMLDivElement>(null);
+
+    // State cho Custom Network Simulation
+    const [customNet, setCustomNet] = useState({ bitrate: "", delay: "", loss: "" });
+    const [isCustomExpanded, setIsCustomExpanded] = useState(false);
+
+    // Xy ly ap dung kich ban mang Custom
+    const applyCustomNet = () => {
+      applyScenario({
+        id: "custom",
+        label: "Custom",
+        speedLabel: customNet.bitrate ? `${customNet.bitrate} kbps` : "No limit",
+        maxBitrateKbps: customNet.bitrate ? Number(customNet.bitrate) : null,
+        delayMs: customNet.delay ? Number(customNet.delay) : 0,
+        lossPercent: customNet.loss ? Number(customNet.loss) : 0,
+        description: "Custom user settings",
+      });
+    };
 
     // Dong menu khi click ra ngoai
     useEffect(() => {
@@ -454,6 +471,72 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                       </button>
                     );
                   })}
+                </div>
+              )}
+
+              {/* === Custom Scenario Form === */}
+              {!isManualMode && (
+                <div className="border-t border-slate-100 p-3 bg-slate-50">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+                      <FaEdit className="text-slate-400" />
+                      CUSTOM SETTINGS
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomExpanded(!isCustomExpanded)}
+                      className="text-[10px] text-blue-500 hover:text-blue-700 font-semibold"
+                    >
+                      {activeScenarioId === "custom" ? "ACTIVE" : isCustomExpanded ? "HIDE" : "SHOW"}
+                    </button>
+                  </div>
+                  
+                  {(isCustomExpanded || activeScenarioId === "custom") && (
+                    <div className="space-y-2 mt-2">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-[9px] font-semibold text-slate-500 block mb-1">Max Bitrate (kbps)</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 1000"
+                            value={customNet.bitrate}
+                            onChange={(e) => setCustomNet({ ...customNet, bitrate: e.target.value })}
+                            className="w-full text-xs border border-slate-200 rounded px-2 py-1.5 outline-none focus:border-blue-400"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-semibold text-slate-500 block mb-1">Delay (ms)</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 50"
+                            value={customNet.delay}
+                            onChange={(e) => setCustomNet({ ...customNet, delay: e.target.value })}
+                            className="w-full text-xs border border-slate-200 rounded px-2 py-1.5 outline-none focus:border-blue-400"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-semibold text-slate-500 block mb-1">Loss (%)</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 1"
+                            value={customNet.loss}
+                            onChange={(e) => setCustomNet({ ...customNet, loss: e.target.value })}
+                            className="w-full text-xs border border-slate-200 rounded px-2 py-1.5 outline-none focus:border-blue-400"
+                          />
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={applyCustomNet}
+                        className={`w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs font-semibold text-white transition-colors ${
+                          activeScenarioId === "custom" ? "bg-emerald-500 hover:bg-emerald-600" : "bg-blue-500 hover:bg-blue-600"
+                        }`}
+                      >
+                        <FaCheck className="w-3 h-3" />
+                        Áp dụng
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

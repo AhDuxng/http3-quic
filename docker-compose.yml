@@ -10,6 +10,8 @@ services:
       - "80:80"        # HTTP (redirect ve HTTPS)
       - "443:443"      # HTTPS (HTTP/1.1, HTTP/2)
       - "443:443/udp"  # HTTP/3 (QUIC) - bat buoc phai mo UDP
+    cap_add:
+      - NET_ADMIN
     volumes:
       - ./caddy_config/Caddyfile:/etc/caddy/Caddyfile  # Cau hinh Caddy
       - ./media:/srv/media                              # Thu muc file media tinh
@@ -23,8 +25,9 @@ services:
   backend:
     build: ./backend
     container_name: node_backend
-    networks:
-      - app-network
+    network_mode: "service:caddy"
+    cap_add:
+      - NET_ADMIN
     environment:
       - HOST=0.0.0.0   # Lang nghe tren tat ca interface cua container
       - PORT=3000

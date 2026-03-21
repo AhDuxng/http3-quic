@@ -13,6 +13,7 @@
  */
 const express = require("express");
 const { getVideoInfo, getMedia2Videos } = require("../controllers/videoController");
+const { applyNetworkScenario } = require("../controllers/networkController");
 
 /**
  * Tao va tra ve Express Router cho nhom /api.
@@ -31,6 +32,10 @@ function createApiRouter() {
   router.get("/media2-videos", (_req, res) => {
     res.json(getMedia2Videos());
   });
+
+  // POST /api/network-scenario
+  // Xy ly limit bang thong hoac delay qua "tc"
+  router.post("/network-scenario", applyNetworkScenario);
 
   return router;
 }

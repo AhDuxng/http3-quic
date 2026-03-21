@@ -25,7 +25,7 @@ localhost, 127.0.0.1, caddy_server, 127.0.0.1.nip.io {
 
     # Proxy API request den backend container
     handle /api/* {
-        reverse_proxy backend:3000
+        reverse_proxy 127.0.0.1:3000
     }
 
     # Proxy tat ca request khac den Vite dev server tren host
