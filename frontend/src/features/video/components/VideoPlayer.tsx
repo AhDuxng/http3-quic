@@ -1,12 +1,13 @@
 // VideoPlayer.tsx - Component chinh hien thi DASH player va cac panel dieu khien.
 // Bo cuc doc: [Video | Sidebar] phia tren, [Stream Telemetry card] phia duoi.
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState, useEffect } from "react";
-import { FaPlay, FaWifi, FaSearch, FaDownload, FaNetworkWired, FaTerminal, FaEllipsisV, FaCog, FaCheck, FaEdit } from "react-icons/fa";
-import { MdLiveTv, MdHighQuality } from "react-icons/md";
-import { NETWORK_SCENARIOS, SCENARIO_ICONS } from "../constants/networkScenarios";
-import { useDashPlayer } from "../hooks/useDashPlayer";
-import { formatBitrateKbps } from "../hooks/useDashPlayer";
-import type { LogLevel } from "../type/dashPlayer";
+import { FaPlay, FaWifi, FaCog } from "react-icons/fa";
+import { MdHighQuality } from "react-icons/md";
+import { NETWORK_SCENARIOS } from "../constants/networkScenarios";
+import { useDashPlayer, formatBitrateKbps } from "../hooks/useDashPlayer";
+import { NetworkSimulationPanel } from "./NetworkSimulationPanel";
+import { ConsoleLogsPanel } from "./ConsoleLogsPanel";
+import { StreamTelemetryCard } from "./StreamTelemetryCard";
 
 // Props component
 interface VideoPlayerProps {
@@ -16,23 +17,6 @@ interface VideoPlayerProps {
 // Handle de App.jsx goi reset tu ben ngoai qua ref
 export interface VideoPlayerHandle {
   reset: () => void;
-}
-
-// Map mau va label hien thi cho tung cap do log
-const LOG_LEVEL_STYLE: Record<LogLevel, { color: string; bg: string; label: string }> = {
-  INFO: { color: "text-emerald-600", bg: "bg-emerald-50", label: "INFO" },
-  WARN: { color: "text-amber-600", bg: "bg-amber-50", label: "WARN" },
-  ERRO: { color: "text-red-600", bg: "bg-red-50", label: "ERRO" },
-  NET: { color: "text-blue-600", bg: "bg-blue-50", label: "NET" },
-  SYS: { color: "text-slate-500", bg: "bg-slate-100", label: "SYS" },
-};
-
-// Format thoi gian mm:ss
-function formatTime(seconds: number): string {
-  if (!seconds || !Number.isFinite(seconds)) return "0:00";
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
@@ -47,27 +31,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     useImperativeHandle(ref, () => ({ reset: resetStats }), [resetStats]);
 
     // UI-only state: bo loc log, che do man hinh
-    const [logFilter, setLogFilter] = useState("");
     const [isManualMode, setIsManualMode] = useState(false);
     const [showQualityMenu, setShowQualityMenu] = useState(false);
     const qualityMenuRef = useRef<HTMLDivElement>(null);
-
-    // State cho Custom Network Simulation
-    const [customNet, setCustomNet] = useState({ bitrate: "", delay: "", loss: "" });
-    const [isCustomExpanded, setIsCustomExpanded] = useState(false);
-
-    // Xy ly ap dung kich ban mang Custom
-    const applyCustomNet = () => {
-      applyScenario({
-        id: "custom",
-        label: "Custom",
-        speedLabel: customNet.bitrate ? `${customNet.bitrate} kbps` : "No limit",
-        maxBitrateKbps: customNet.bitrate ? Number(customNet.bitrate) : null,
-        delayMs: customNet.delay ? Number(customNet.delay) : 0,
-        lossPercent: customNet.loss ? Number(customNet.loss) : 0,
-        description: "Custom user settings",
-      });
-    };
 
     // Dong menu khi click ra ngoai
     useEffect(() => {
@@ -82,7 +48,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     // Tim kich ban dang active de hien thi label
     const activeScenario = useMemo(
-      () => NETWORK_SCENARIOS.find((s) => s.id === activeScenarioId) ?? NETWORK_SCENARIOS[0],
+      () => NETWORK_SCENARIOS.find((s) => s.id === activeScenarioId) ?? {
+        id: "custom", label: "Custom Settings", speedLabel: "No limit", maxBitrateKbps: null, description: "Custom"
+      },
       [activeScenarioId],
     );
 
@@ -92,162 +60,6 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       : representations[qualitySelection as number]?.height
         ? `${representations[qualitySelection as number].height}p`
         : "Manual";
-
-    // Loc log theo tu khoa nguoi dung nhap
-    const filteredLogs = useMemo(() => {
-      if (!logFilter.trim()) return logs;
-      const kw = logFilter.toLowerCase();
-      return logs.filter(
-        (l) => l.message.toLowerCase().includes(kw) || l.level.toLowerCase().includes(kw),
-      );
-    }, [logs, logFilter]);
-
-    // Tao CSV log xuat day du thong so do dac
-    const generateFullLogCSV = () => {
-      const header = [
-        "Timestamp",
-        "Level",
-        "Message",
-        "Resolution",
-        "Bitrate_kbps",
-        "Throughput_kbps",
-        "Buffer_s",
-        "FPS",
-        "DroppedFrames",
-        "TotalFrames",
-        "Latency_ms",
-        "Jitter_ms",
-        "RTT_ms",
-        "DownloadSpeed_kbps",
-        "SegmentSize_KB",
-        "SegmentDuration_ms",
-        "TotalDownloaded_MB",
-        "RebufferCount",
-        "RebufferDuration_ms",
-        "QualitySwitchCount",
-        "CurrentTime_s",
-        "Duration_s",
-        "Codec",
-        "QualityIndex",
-        "QualityCount",
-        "Protocol",
-        "ConnectionType",
-        "EstimatedBandwidth_Mbps",
-        "IsAutoQuality",
-        "ActiveScenario",
-      ].join(",");
-
-      const rows = filteredLogs.map((l) =>
-        [
-          l.timestamp,
-          l.level,
-          `"${l.message.replace(/"/g, '""')}"`,
-          stats.resolutionLabel,
-          stats.bitrateKbps,
-          stats.avgThroughputKbps,
-          stats.bufferSeconds.toFixed(2),
-          stats.fpsLabel,
-          stats.droppedFrames,
-          stats.totalFrames,
-          stats.latencyMs,
-          stats.jitterMs,
-          stats.rttMs,
-          stats.downloadSpeedKbps,
-          stats.lastSegmentSizeKB,
-          stats.lastSegmentDurationMs,
-          stats.totalDownloadedMB.toFixed(2),
-          stats.rebufferCount,
-          stats.rebufferDurationMs,
-          stats.qualitySwitchCount,
-          stats.currentTime.toFixed(2),
-          stats.duration.toFixed(2),
-          stats.codecLabel,
-          stats.qualityIndex,
-          stats.qualityCount,
-          stats.protocolLabel,
-          stats.connectionType,
-          stats.estimatedBandwidthMbps,
-          isAutoQuality,
-          activeScenario.label,
-        ].join(","),
-      );
-
-      return `${header}\n${rows.join("\n")}`;
-    };
-
-    // Tao plain-text log chi tiet
-    const generateDetailedLog = () => {
-      const separator = "═".repeat(70);
-      const sections = [
-        separator,
-        `  ADTUBE STREAM ANALYZER - MEASUREMENT LOG`,
-        `  Generated: ${new Date().toISOString()}`,
-        separator,
-        "",
-        "── CURRENT STREAM STATS ──",
-        `  Resolution:        ${stats.resolutionLabel}`,
-        `  Bitrate:           ${formatBitrateKbps(stats.bitrateKbps)}`,
-        `  Throughput:        ${formatBitrateKbps(stats.avgThroughputKbps)}`,
-        `  Buffer:            ${stats.bufferSeconds.toFixed(2)} s`,
-        `  FPS:               ${stats.fpsLabel}`,
-        `  Dropped Frames:    ${stats.droppedFrames}`,
-        `  Total Frames:      ${stats.totalFrames}`,
-        `  Protocol:          ${stats.protocolLabel}`,
-        `  Codec:             ${stats.codecLabel}`,
-        `  Quality Level:     ${stats.qualityIndex + 1} / ${stats.qualityCount}`,
-        `  Latency:           ${stats.latencyMs} ms`,
-        `  Jitter:            ${stats.jitterMs} ms`,
-        `  RTT (est.):        ${stats.rttMs} ms`,
-        `  Download Speed:    ${formatBitrateKbps(stats.downloadSpeedKbps)}`,
-        `  Last Segment Size: ${stats.lastSegmentSizeKB.toFixed(1)} KB`,
-        `  Last Seg Duration: ${stats.lastSegmentDurationMs} ms`,
-        `  Total Downloaded:  ${stats.totalDownloadedMB.toFixed(2)} MB`,
-        `  Rebuffer Count:    ${stats.rebufferCount}`,
-        `  Rebuffer Duration: ${(stats.rebufferDurationMs / 1000).toFixed(2)} s`,
-        `  Quality Switches:  ${stats.qualitySwitchCount}`,
-        `  Playback Position: ${formatTime(stats.currentTime)} / ${formatTime(stats.duration)}`,
-        `  Quality Mode:      ${isAutoQuality ? "Auto ABR" : "Manual"}`,
-        `  Network Scenario:  ${activeScenario.label} (${activeScenario.speedLabel})`,
-        `  Connection Type:   ${stats.connectionType}`,
-        `  Est. Bandwidth:    ${stats.estimatedBandwidthMbps} Mbps`,
-        "",
-        "── AVAILABLE QUALITY LEVELS ──",
-        ...representations.map((rep, i) => {
-          const kbps = typeof rep.bitrateInKbit === "number"
-            ? rep.bitrateInKbit
-            : Math.round((rep.bandwidth ?? 0) / 1000);
-          const res = rep.width && rep.height ? `${rep.width}x${rep.height}` : "—";
-          return `  [${i}] ${res} @ ${formatBitrateKbps(kbps)}`;
-        }),
-        "",
-        "── EVENT LOG ──",
-        ...filteredLogs.map((l) => `  [${l.timestamp}] [${l.level}] ${l.message}`),
-        "",
-        separator,
-      ];
-      return sections.join("\n");
-    };
-
-    const telemetryItems = useMemo(() => [
-      { label: "RESOLUTION", value: stats.resolutionLabel, accent: false },
-      { label: "BITRATE", value: formatBitrateKbps(stats.bitrateKbps), accent: "blue" },
-      { label: "THROUGHPUT", value: formatBitrateKbps(stats.avgThroughputKbps), accent: "blue" },
-      { label: "BUFFER", value: `${stats.bufferSeconds.toFixed(2)} s`, accent: false },
-      { label: "FPS", value: `${stats.fpsLabel}`, accent: false },
-      { label: "DROPPED", value: String(stats.droppedFrames), accent: stats.droppedFrames > 0 ? "red" : false },
-      { label: "LATENCY", value: `${stats.latencyMs} ms`, accent: stats.latencyMs > 500 ? "red" : false },
-      { label: "JITTER", value: `${stats.jitterMs} ms`, accent: stats.jitterMs > 100 ? "red" : false },
-      { label: "RTT", value: `${stats.rttMs} ms`, accent: false },
-      { label: "DL SPEED", value: formatBitrateKbps(stats.downloadSpeedKbps), accent: false },
-      { label: "SEGMENT", value: `${stats.lastSegmentSizeKB.toFixed(1)} KB`, accent: false },
-      { label: "DOWNLOADED", value: `${stats.totalDownloadedMB.toFixed(2)} MB`, accent: false },
-      { label: "REBUFFER", value: `${stats.rebufferCount}× / ${(stats.rebufferDurationMs / 1000).toFixed(1)}s`, accent: stats.rebufferCount > 0 ? "red" : false },
-      { label: "Q.SWITCHES", value: String(stats.qualitySwitchCount), accent: stats.qualitySwitchCount > 5 ? "red" : false },
-      { label: "POSITION", value: `${formatTime(stats.currentTime)} / ${formatTime(stats.duration)}`, accent: false },
-      { label: "CODEC", value: stats.codecLabel, accent: false },
-      { label: "PROTOCOL", value: stats.protocolLabel, accent: "blue" },
-      { label: "NETWORK", value: `${stats.connectionType} / ${stats.estimatedBandwidthMbps} Mbps`, accent: false },
-    ], [stats]);
 
     return (
       <div className="flex flex-col gap-4 w-full">
@@ -393,291 +205,33 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           </div>
           {/* END COT TRAI */}
 
-
           {/* COT PHAI: Sidebar */}
           <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4">
+            <NetworkSimulationPanel
+              stats={stats}
+              representations={representations}
+              isAutoQuality={isAutoQuality}
+              activeScenarioId={activeScenarioId}
+              qualitySelection={qualitySelection}
+              setQualitySelection={setQualitySelection}
+              applyScenario={applyScenario}
+              isManualMode={isManualMode}
+              setIsManualMode={setIsManualMode}
+            />
 
-            {/* --- Panel: Network Simulation --- */}
-            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shrink-0">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <FaNetworkWired className="text-slate-400 w-3 h-3" />
-                  <span className="text-[11px] font-bold tracking-widest text-slate-600">
-                    NETWORK SIMULATION
-                  </span>
-                </div>
-                {/* Toggle giua Auto (scenario) va Manual (quality dropdown) */}
-                <button
-                  onClick={() => setIsManualMode((v) => !v)}
-                  className="text-[10px] font-semibold text-blue-500 hover:text-blue-700 transition-colors"
-                >
-                  {isManualMode ? "AUTO MODE" : "MANUAL CONTROL"}
-                </button>
-              </div>
-
-              {isManualMode ? (
-                /* Che do Manual: chon chat luong thu cong */
-                <div className="p-3">
-                  <select
-                    value={qualitySelection}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setQualitySelection(v === "auto" ? "auto" : Number.parseInt(v, 10));
-                    }}
-                    className="w-full text-sm border border-slate-200 rounded px-2.5 py-2 outline-none focus:border-blue-400"
-                  >
-                    <option value="auto">Auto ABR ({formatBitrateKbps(stats.bitrateKbps)})</option>
-                    {representations.map((rep, i) => (
-                      <option key={i} value={i}>
-                        {rep.height ? `${rep.height}p` : "—"} — {formatBitrateKbps(
-                          typeof rep.bitrateInKbit === "number"
-                            ? rep.bitrateInKbit
-                            : Math.round((rep.bandwidth ?? 0) / 1000)
-                        )}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[10px] text-slate-400 mt-1.5">
-                    Mode:{" "}
-                    <span className={isAutoQuality ? "text-emerald-500" : "text-blue-500"}>
-                      {isAutoQuality ? "Auto ABR" : "Manual"}
-                    </span>
-                  </p>
-                </div>
-              ) : (
-                /* Che do Auto: danh sach kich ban mang */
-                <div className="divide-y divide-slate-50">
-                  {NETWORK_SCENARIOS.map((scenario) => {
-                    const Icon = SCENARIO_ICONS[scenario.id];
-                    const isActive = activeScenarioId === scenario.id;
-                    return (
-                      <button
-                        key={scenario.id}
-                        type="button"
-                        onClick={() => applyScenario(scenario)}
-                        className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${isActive ? "bg-blue-50" : "hover:bg-slate-50"
-                          }`}
-                      >
-                        <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-blue-500" : "text-slate-400"}`} />
-                        <span className={`flex-1 text-sm ${isActive ? "text-blue-700 font-semibold" : "text-slate-700"}`}>
-                          {scenario.label}
-                          {isActive && activeScenario?.maxBitrateKbps == null && (
-                            <span className="ml-1 text-[10px] text-emerald-500 font-normal">(Default)</span>
-                          )}
-                        </span>
-                        <span className={`text-[11px] font-mono ${isActive ? "text-blue-500 font-semibold" : "text-slate-400"}`}>
-                          {scenario.speedLabel}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* === Custom Scenario Form === */}
-              {!isManualMode && (
-                <div className="border-t border-slate-100 p-3 bg-slate-50">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
-                      <FaEdit className="text-slate-400" />
-                      CUSTOM SETTINGS
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsCustomExpanded(!isCustomExpanded)}
-                      className="text-[10px] text-blue-500 hover:text-blue-700 font-semibold"
-                    >
-                      {activeScenarioId === "custom" ? "ACTIVE" : isCustomExpanded ? "HIDE" : "SHOW"}
-                    </button>
-                  </div>
-                  
-                  {(isCustomExpanded || activeScenarioId === "custom") && (
-                    <div className="space-y-2 mt-2">
-                      <div className="grid grid-cols-3 gap-2">
-                        <div>
-                          <label className="text-[9px] font-semibold text-slate-500 block mb-1">Max Bitrate (kbps)</label>
-                          <input
-                            type="number"
-                            placeholder="e.g. 1000"
-                            value={customNet.bitrate}
-                            onChange={(e) => setCustomNet({ ...customNet, bitrate: e.target.value })}
-                            className="w-full text-xs border border-slate-200 rounded px-2 py-1.5 outline-none focus:border-blue-400"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[9px] font-semibold text-slate-500 block mb-1">Delay (ms)</label>
-                          <input
-                            type="number"
-                            placeholder="e.g. 50"
-                            value={customNet.delay}
-                            onChange={(e) => setCustomNet({ ...customNet, delay: e.target.value })}
-                            className="w-full text-xs border border-slate-200 rounded px-2 py-1.5 outline-none focus:border-blue-400"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[9px] font-semibold text-slate-500 block mb-1">Loss (%)</label>
-                          <input
-                            type="number"
-                            placeholder="e.g. 1"
-                            value={customNet.loss}
-                            onChange={(e) => setCustomNet({ ...customNet, loss: e.target.value })}
-                            className="w-full text-xs border border-slate-200 rounded px-2 py-1.5 outline-none focus:border-blue-400"
-                          />
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={applyCustomNet}
-                        className={`w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs font-semibold text-white transition-colors ${
-                          activeScenarioId === "custom" ? "bg-emerald-500 hover:bg-emerald-600" : "bg-blue-500 hover:bg-blue-600"
-                        }`}
-                      >
-                        <FaCheck className="w-3 h-3" />
-                        Áp dụng
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* --- Panel: Console Logs --- */}
-            <div className="bg-white rounded-lg border border-slate-200 flex flex-col h-[360px] shrink-0">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
-                <div className="flex items-center gap-2">
-                  <FaTerminal className="text-slate-400 w-3 h-3" />
-                  <span className="text-[11px] font-bold tracking-widest text-slate-600">
-                    CONSOLE LOGS
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    ({filteredLogs.length})
-                  </span>
-                </div>
-                {/* Nut tai xuong log */}
-                <div className="flex items-center gap-2">
-                  {/* Download CSV */}
-                  <button
-                    onClick={() => {
-                      if (filteredLogs.length === 0) return;
-                      const csv = generateFullLogCSV();
-                      const blob = new Blob([csv], { type: "text/csv" });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = `adtube-metrics-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                      URL.revokeObjectURL(url);
-                    }}
-                    title="Download metrics CSV"
-                    className="text-slate-300 hover:text-emerald-500 transition-colors"
-                  >
-                    <span className="text-[9px] font-bold">CSV</span>
-                  </button>
-                  {/* Download TXT */}
-                  <button
-                    onClick={() => {
-                      if (filteredLogs.length === 0) return;
-                      const textContent = generateDetailedLog();
-                      const blob = new Blob([textContent], { type: "text/plain" });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = `adtube-logs-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                      URL.revokeObjectURL(url);
-                    }}
-                    title="Download detailed logs"
-                    className="text-slate-300 hover:text-blue-500 transition-colors"
-                  >
-                    <FaDownload className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Danh sach log - cuon doc */}
-              <div className="flex-1 overflow-y-auto min-h-0 divide-y divide-slate-50">
-                {filteredLogs.length === 0 ? (
-                  <p className="text-center text-slate-400 text-xs py-6">No logs yet.</p>
-                ) : (
-                  filteredLogs.map((log) => {
-                    const style = LOG_LEVEL_STYLE[log.level];
-                    return (
-                      <div key={log.id} className="flex gap-2 px-3 py-2 hover:bg-slate-50 transition-colors">
-                        {/* Timestamp */}
-                        <span className="text-slate-400 text-[10px] font-mono whitespace-nowrap pt-0.5">
-                          {log.timestamp}
-                        </span>
-                        {/* Badge cap do */}
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 h-fit ${style.color} ${style.bg}`}>
-                          {style.label}
-                        </span>
-                        {/* Noi dung log */}
-                        <span className="text-slate-600 text-[11px] leading-relaxed break-words min-w-0">
-                          {log.message}
-                        </span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Thanh loc log */}
-              <div className="shrink-0 px-3 py-2 border-t border-slate-100">
-                <div className="flex items-center gap-2 bg-slate-50 rounded px-2.5 py-1.5">
-                  <FaSearch className="text-slate-300 w-3 h-3 shrink-0" />
-                  <input
-                    value={logFilter}
-                    onChange={(e) => setLogFilter(e.target.value)}
-                    placeholder="Filter session logs..."
-                    className="bg-transparent text-[11px] text-slate-600 placeholder-slate-300 w-full outline-none"
-                  />
-                </div>
-              </div>
-            </div>
+            <ConsoleLogsPanel
+              logs={logs}
+              stats={stats}
+              representations={representations}
+              isAutoQuality={isAutoQuality}
+              activeScenario={activeScenario as any}
+            />
           </div>
         </div>
         {/* END HANG TREN */}
 
-
         {/* ===== CARD TELEMETRY - fullwidth phia duoi ===== */}
-        <div className="rounded-lg border border-slate-200 overflow-hidden bg-white">
-          {/* Tieu de card */}
-          <div className="bg-slate-700 px-4 py-2 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <MdLiveTv className="text-slate-300 w-3.5 h-3.5" />
-              <span className="text-slate-200 text-[11px] font-bold tracking-widest">
-                STREAM TELEMETRY
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
-              <span className="text-slate-400 text-[10px]">REAL-TIME DATA FEED</span>
-            </div>
-          </div>
-
-          {/* Hang thong so stats - scroll ngang khi khong du rong */}
-          <div className="overflow-x-auto">
-            <div className="grid grid-flow-col auto-cols-[7.5rem] divide-x divide-slate-100 w-max min-w-full">
-              {telemetryItems.map(({ label, value, accent }) => (
-                <div key={label} className="px-4 py-3">
-                  <div className="text-[9px] text-slate-400 font-semibold tracking-widest mb-1">
-                    {label}
-                  </div>
-                  <div className={`text-sm font-bold font-mono ${accent === "blue" ? "text-blue-600"
-                      : accent === "red" ? "text-red-500"
-                        : "text-slate-800"
-                    }`}>
-                    {value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <StreamTelemetryCard stats={stats} isPlaying={isPlaying} />
       </div>
     );
   },
