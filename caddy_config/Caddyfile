@@ -23,6 +23,12 @@ localhost, 127.0.0.1, caddy_server, 127.0.0.1.nip.io {
         file_server
     }
 
+    # Serve file media-2 (BigBuckBunny DASH segments)
+    handle /media-2/* {
+        root * /srv
+        file_server
+    }
+
     # Proxy API request den backend container
     handle /api/* {
         reverse_proxy 127.0.0.1:3000

@@ -35,6 +35,7 @@ services:
   backend:
     build: ./backend
     container_name: node_backend
+    restart: unless-stopped
     networks:
       - app-network
     environment:

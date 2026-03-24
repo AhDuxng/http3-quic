@@ -5,9 +5,11 @@ import { FaExchangeAlt } from "react-icons/fa";
 import "./App.css";
 
 // Cau hinh nguon video
+// Luu y: "dash" (media/) dung codec HEVC (hvc1.x) - trinh duyet KHONG ho tro qua MSE/dash.js
+// "media2" (media-2/) dung codec H.264 (avc1.x) - ho tro toan bo trinh duyet
 const VIDEO_SOURCES = {
-  dash: { manifestUrl: "/media/stream.mpd", label: "DASH / ABR" },
-  media2: { manifestUrl: "/media-2/dash/stream.mpd", label: "Media-2 (DASH)" },
+  media2: { manifestUrl: "/media-2/dash/stream.mpd", label: "Media-2 (H.264 DASH)" },
+  dash: { manifestUrl: "/media/stream.mpd", label: "HEVC DASH (unsupported)" },
 };
 
 function App() {
@@ -16,8 +18,8 @@ function App() {
 
   const { videoInfo, isLoading, error } = useVideoInfo();
 
-  // Nguon video dang hien thi: "dash" | "media2"
-  const [activeSource, setActiveSource] = useState("dash");
+  // Nguon video dang hien thi: "media2" (mac dinh, H.264) | "dash" (HEVC)
+  const [activeSource, setActiveSource] = useState("media2");
 
   // Chuyen doi nguon video
   const toggleSource = () => {

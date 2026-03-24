@@ -15,6 +15,7 @@ services:
     volumes:
       - ./caddy_config/Caddyfile:/etc/caddy/Caddyfile  # Cau hinh Caddy
       - ./media:/srv/media                              # Thu muc file media tinh
+      - ./media-2:/srv/media-2                            # Thu muc BigBuckBunny DASH
       - ./frontend/dist:/srv/frontend                  # Frontend build (cho prod)
       - caddy_data:/data                               # TLS certs (Caddy tu quan ly)
       - caddy_config:/config                           # Caddy runtime config
@@ -25,6 +26,7 @@ services:
   backend:
     build: ./backend
     container_name: node_backend
+    restart: unless-stopped
     network_mode: "service:caddy"
     cap_add:
       - NET_ADMIN
@@ -37,6 +39,7 @@ services:
   curl-client:
     image: curlimages/curl:latest
     container_name: curl_tester
+    restart: unless-stopped
     command: tail -f /dev/null  # Giu container chay de exec vao test
     networks:
       - app-network
