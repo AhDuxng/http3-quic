@@ -48,4 +48,12 @@ tmp/
 caddy_config/caddy-local-root.crt
 
 # ===== Media files =====
-# Track media assets so server can pull and serve video directly from repository.
+# Keep source videos, ignore generated DASH outputs.
+media/**/*.m4s
+media/**/*.mpd
+media/**/*.m3u8
+media/**/dash/**
+media-2/**/*.m4s
+media-2/**/*.mpd
+media-2/**/*.m3u8
+media-2/**/dash/**
