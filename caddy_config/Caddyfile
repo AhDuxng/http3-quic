@@ -1,41 +1,40 @@
-# Cau hinh Caddy cho moi truong DEVELOPMENT (local)
-# Ho tro HTTP/1.1 va HTTP/3 (QUIC)
-
 {
     servers {
-        protocols h1 h3
+        protocols h1 h2 h3
     }
 }
 
-# Cac domain cho phep truy cap (local)
-localhost, 127.0.0.1, caddy_server, 127.0.0.1.nip.io {
+# FILL: Dat SITE_ADDRESS trong file .env o root project:
+# 1) Co domain: SITE_ADDRESS=your-domain.com (Caddy tu cap TLS Let's Encrypt)
+# 2) Chi co IP: SITE_ADDRESS=:80 (chay HTTP, khong co cert public cho IP)
+{$SITE_ADDRESS} {
+    encode zstd gzip
 
-    # Su dung TLS noi bo (tu ky) cho HTTPS local
-    tls internal
+    # Co the bo sung header bao mat tai day neu can.
 
-    # CORS headers - cho phep frontend goi API
-    header Access-Control-Allow-Origin *
-    header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+    @preflight method OPTIONS
+    handle @preflight {
+        header Access-Control-Allow-Origin *
+        header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        header Access-Control-Allow-Headers "Content-Type, Authorization"
+        respond "" 204
+    }
 
-    # Serve file media tinh (video chunks, manifest)
     handle /media/* {
         root * /srv
         file_server
     }
 
-    # Serve file media-2 (BigBuckBunny DASH segments)
     handle /media-2/* {
         root * /srv
         file_server
     }
 
-    # Proxy API request den backend container
     handle /api/* {
-        reverse_proxy 127.0.0.1:3000
+        reverse_proxy backend:3000
     }
 
-    # Proxy tat ca request khac den Vite dev server tren host
-    handle /* {
-        reverse_proxy host.docker.internal:5173
+    handle {
+        reverse_proxy frontend:80
     }
 }
