@@ -48,12 +48,6 @@ tmp/
 caddy_config/caddy-local-root.crt
 
 # ===== Media files =====
-# Keep source videos, ignore generated DASH outputs.
-media/**/*.m4s
-media/**/*.mpd
-media/**/*.m3u8
-media/**/dash/**
-media-2/**/*.m4s
-media-2/**/*.mpd
-media-2/**/*.m3u8
-media-2/**/dash/**
+# Khong day media len git
+media/
+media-2/
