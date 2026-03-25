@@ -17,14 +17,13 @@ function ComparePlayer({ videos, label }: ComparePlayerProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Chon video dau tien mac dinh
-  useEffect(() => {
-    if (videos.length > 0 && !selectedId) {
-      // Chon video co bitrate trung binh (giua danh sach)
-      const midIdx = Math.floor(videos.length / 2);
-      setSelectedId(videos[midIdx].id);
-    }
-  }, [videos, selectedId]);
+  // Chon video hieu luc: uu tien video user da chon, neu chua co thi lay muc bitrate giua
+  const effectiveSelectedId = useMemo(() => {
+    if (selectedId) return selectedId;
+    if (videos.length === 0) return "";
+    const midIdx = Math.floor(videos.length / 2);
+    return videos[midIdx].id;
+  }, [selectedId, videos]);
 
   // Dong menu khi click ra ngoai
   useEffect(() => {
@@ -39,8 +38,8 @@ function ComparePlayer({ videos, label }: ComparePlayerProps) {
 
   // Tim video dang chon
   const selectedVideo = useMemo(
-    () => videos.find((v) => v.id === selectedId) ?? null,
-    [videos, selectedId],
+    () => videos.find((v) => v.id === effectiveSelectedId) ?? null,
+    [videos, effectiveSelectedId],
   );
 
   // Format bitrate de hien thi
@@ -178,7 +177,7 @@ function ComparePlayer({ videos, label }: ComparePlayerProps) {
                       {group.label}
                     </div>
                     {group.items.map((v) => {
-                      const isSelected = v.id === selectedId;
+                      const isSelected = v.id === effectiveSelectedId;
                       return (
                         <button
                           key={v.id}

@@ -47,17 +47,5 @@ tmp/
 # Docker / local cert outputs
 caddy_config/caddy-local-root.crt
 
-# ===== Media files (khong push len GitHub) =====
-
-# Thu muc media goc (DASH segments + MP4 goc)
-media/
-media-2/
-
-# Du phong: ignore file media theo extension bat ky vi tri
-*.m4s
-*.mpd
-*.mp4
-*.mkv
-*.webm
-*.ts
-*.m3u8
+# ===== Media files =====
+# Track media assets so server can pull and serve video directly from repository.
