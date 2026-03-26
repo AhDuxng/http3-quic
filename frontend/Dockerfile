@@ -3,7 +3,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci && chmod -R +x node_modules/.bin
 
 COPY . .
 RUN npm run build
