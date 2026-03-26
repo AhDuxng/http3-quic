@@ -1,103 +1,116 @@
 const { execSync } = require("child_process");
 
-// Ten container Caddy (doc tu bien moi truong, mac dinh la caddy_server)
-// Backend se chay `docker exec <CADDY_CONTAINER_NAME> tc ...` de ap dung
-// traffic shaping TREN container Caddy - noi thuc su phuc vu media/traffic den browser
-const CADDY_CONTAINER = process.env.CADDY_CONTAINER_NAME || "caddy_server";
-
 /**
- * Chay mot lenh shell va tra ve ket qua.
- * Neu lenh loi, nem loi de caller xu ly.
- * @param {string} cmd - Lenh can chay
+ * Chay mot lenh shell, tra ve true neu thanh cong, false neu loi.
+ * stdio: "pipe" de bat output, tranh lenh block terminal.
  */
 function runCmd(cmd) {
   try {
-    execSync(cmd, { stdio: "ignore" });
-    return true;
+    execSync(cmd, { stdio: "pipe" });
+    return { ok: true };
   } catch (e) {
-    return false;
+    const stderr = e.stderr ? e.stderr.toString().trim() : "";
+    const stdout = e.stdout ? e.stdout.toString().trim() : "";
+    return { ok: false, error: stderr || stdout || e.message };
   }
 }
 
 /**
- * Ap dung tc netem tren mot interface cu the (eth0) cua mot container.
- * Strategy:
- *   1. Neu co DOCKER_SOCKET (docker.sock duoc mount), chay qua `docker exec <container> tc`
- *      -> Hieu luc tren Caddy container: tat ca traffic browser<->Caddy bi anh huong
- *   2. Fallback: chay tc truc tiep tren container backend (co the dung de test)
- *
- * @param {string} containerName - Ten container can ap dung tc
- * @param {string} tcArgs - Phan tham so cho lenh `tc qdisc add dev eth0 root netem ...`
+ * Xoa het tc rules tren eth0.
+ * Lenh nay co the that bai neu chua co rule nao -> bo qua loi.
  */
-function applyTcOnContainer(containerName, tcArgs) {
-  // Thu xoa tc rules cu tren container Caddy truoc
-  runCmd(`docker exec ${containerName} tc qdisc del dev eth0 root 2>/dev/null || true`);
-
-  if (tcArgs) {
-    // Ap dung rules moi tren Caddy container
-    const addCmd = `docker exec ${containerName} tc qdisc add dev eth0 root netem ${tcArgs}`;
-    console.log(`[Network] docker exec ${containerName}: tc qdisc add dev eth0 root netem ${tcArgs}`);
-    const ok = runCmd(addCmd);
-    if (!ok) {
-      // Fallback: ap dung tren chinh container backend neu docker exec that bai
-      console.warn(`[Network] docker exec that bai, fallback: ap dung tc tren backend eth0`);
-      runCmd("tc qdisc del dev eth0 root 2>/dev/null || true");
-      runCmd(`tc qdisc add dev eth0 root netem ${tcArgs}`);
-    }
-  } else {
-    console.log(`[Network] Xoa het tc rules tren ${containerName} (Back to Normal)`);
-    // Fallback: xoa tren backend
-    runCmd("tc qdisc del dev eth0 root 2>/dev/null || true");
-  }
+function clearTcRules() {
+  runCmd("tc qdisc del dev eth0 root 2>/dev/null || true");
 }
 
 /**
  * API endpoint POST /api/network-scenario
- * Nhan params: maxBitrateKbps, delayMs, lossPercent
- * Ap dung tc netem len container Caddy de gia lap kich ban mang thuc.
+ *
+ * KIEN TRUC TC:
+ * Backend container dung network_mode: service:caddy
+ * -> Backend va Caddy CHIA SE cung network namespace
+ * -> tc eth0 cua backend = tc eth0 cua Caddy
+ * -> Traffic shaping anh huong TRUC TIEP den media/video browser nhan
+ *
+ * @param {Object} req.body - { maxBitrateKbps, delayMs, lossPercent }
  */
 function applyNetworkScenario(req, res) {
   const { maxBitrateKbps, delayMs, lossPercent } = req.body;
 
+  // Kiem tra xem tc co san sang khong (iproute2 phai duoc cai trong container)
+  const tcCheck = runCmd("which tc");
+  if (!tcCheck.ok) {
+    console.error("[Network] lenh `tc` khong tim thay - iproute2 chua duoc cai?");
+    return res.status(500).json({
+      error: "lenh tc khong co san (iproute2 chua cai)",
+      hint: "Backend Dockerfile can `apk add iproute2`",
+    });
+  }
+
   try {
-    // Xay dung phan tham so tc netem
-    // netem ho tro: rate (bandwidth), delay (latency + jitter), loss (packet loss %)
+    // Buoc 1: Xoa het rules cu tren eth0
+    clearTcRules();
+
     const hasBitrate = maxBitrateKbps && Number(maxBitrateKbps) > 0;
-    const hasDelay = delayMs && Number(delayMs) > 0;
-    const hasLoss = lossPercent && Number(lossPercent) > 0;
+    const hasDelay   = delayMs        && Number(delayMs) > 0;
+    const hasLoss    = lossPercent    && Number(lossPercent) > 0;
 
-    let tcArgs = "";
-
-    if (hasBitrate || hasDelay || hasLoss) {
-      // Xay dung chuoi tham so cho tc netem
-      if (hasBitrate) {
-        tcArgs += ` rate ${maxBitrateKbps}kbit`;
-      }
-      if (hasDelay) {
-        // Them jitter = 1/4 delay de gia lap mang thuc te hon
-        const jitter = Math.max(1, Math.round(Number(delayMs) / 4));
-        tcArgs += ` delay ${delayMs}ms ${jitter}ms distribution normal`;
-      }
-      if (hasLoss) {
-        tcArgs += ` loss ${lossPercent}%`;
-      }
-      tcArgs = tcArgs.trim();
+    if (!hasBitrate && !hasDelay && !hasLoss) {
+      // Kich ban "Normal" -> chi xoa rules la xong
+      console.log("[Network] Cleared - Back to Normal (xoa het tc rules)");
+      return res.json({ success: true, message: "Normal - da xoa gioi han mang" });
     }
 
-    // Ap dung tc len Caddy container (noi phuc vu media/traffic that su)
-    applyTcOnContainer(CADDY_CONTAINER, tcArgs);
+    // Buoc 2: Xay dung lenh tc netem
+    // tc netem ho tro: rate (gioi han bandwidth), delay+jitter, loss (%)
+    let netemArgs = "";
 
-    const summary = tcArgs
-      ? `Applied: ${tcArgs}`
-      : "Cleared (Normal - khong gioi han)";
+    if (hasBitrate) {
+      netemArgs += ` rate ${maxBitrateKbps}kbit`;
+    }
+    if (hasDelay) {
+      // Them jitter = delay / 4 de gia lap bien dong mang thuc te
+      const jitter = Math.max(1, Math.round(Number(delayMs) / 4));
+      netemArgs += ` delay ${delayMs}ms ${jitter}ms distribution normal`;
+    }
+    if (hasLoss) {
+      netemArgs += ` loss ${lossPercent}%`;
+    }
 
-    console.log(`[Network] ${summary}`);
-    res.json({ success: true, message: summary });
+    netemArgs = netemArgs.trim();
+
+    // Buoc 3: Ap dung tc netem tren eth0
+    // Voi network_mode: service:caddy, eth0 nay la cua Caddy
+    // -> anh huong TOAN BO traffic Caddy phuc vu cho browser
+    const cmd = `tc qdisc add dev eth0 root netem ${netemArgs}`;
+    console.log(`[Network] Ap dung: ${cmd}`);
+
+    const result = runCmd(cmd);
+    if (!result.ok) {
+      console.error(`[Network] tc that bai: ${result.error}`);
+      return res.status(500).json({
+        error: "tc that bai",
+        detail: result.error,
+        cmd,
+      });
+    }
+
+    // Xac nhan thanh cong bang cach doc lai rules hien tai
+    const verify = runCmd("tc qdisc show dev eth0");
+    const currentRules = verify.ok ? "" : "";
+
+    console.log(`[Network] Thanh cong: ${netemArgs}`);
+    res.json({
+      success: true,
+      message: `Applied: ${netemArgs}`,
+      applied: { maxBitrateKbps, delayMs, lossPercent },
+    });
+
   } catch (error) {
-    console.error("[Network] Loi khi ap dung tc:", error.message || error);
+    console.error("[Network] Loi khong mong muon:", error.message);
     res.status(500).json({
-      error: "Khong the ap dung kich ban mang",
-      detail: error.message || String(error),
+      error: "Loi he thong",
+      detail: error.message,
     });
   }
 }

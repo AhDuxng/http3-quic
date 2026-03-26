@@ -3,17 +3,18 @@ services:
     image: caddy:2.8-alpine
     container_name: caddy_server
     restart: unless-stopped
-    # NET_ADMIN: can thiet de backend goi `docker exec caddy_server tc` len Caddy
+    # NET_ADMIN: can thiet de `tc` (traffic control) chay trong container nay
+    # Backend chia se network namespace voi Caddy qua network_mode: service:caddy
+    # -> tc chay tu backend se anh huong truc tiep traffic Caddy phuc vu media
     cap_add:
       - NET_ADMIN
     ports:
-      - "80:80"        # HTTP (Caddy tu dong redirect sang HTTPS)
-      - "443:443"      # HTTPS / HTTP2
-      - "443:443/udp"  # HTTP/3 (QUIC) - bat buoc phai mo UDP 443
+      - "80:80"        # HTTP (redirect sang HTTPS)
+      - "443:443"      # HTTPS / HTTP/2
+      - "443:443/udp"  # HTTP/3 (QUIC) - bat buoc mo UDP port 443
     volumes:
       # Mount toan bo thu muc caddy_config vao /etc/caddy
-      # Bao gom: Caddyfile, certs/server.crt, certs/server.key
-      # Cert duoc tao boi scripts/setup-certs.sh truoc khi deploy
+      # Bao gom: Caddyfile va certs/server.crt + certs/server.key
       - ./caddy_config:/etc/caddy:ro
       - ./media:/srv/media:ro
       - ./media-2:/srv/media-2:ro
@@ -21,7 +22,6 @@ services:
       - caddy_config:/config
     depends_on:
       - frontend
-      - backend
     networks:
       - app-network
 
@@ -40,28 +40,27 @@ services:
       dockerfile: Dockerfile
     container_name: node_backend
     restart: unless-stopped
-    # NET_ADMIN: de co the chay tc qua docker exec vao caddy container
+    # QUAN TRONG: Chia se network namespace voi Caddy container
+    # -> backend va Caddy dung chung eth0
+    # -> tc qdisc tren eth0 tu backend = tc tren Caddy's eth0
+    # -> Traffic shaping anh huong TRUC TIEP den media/video phuc vu cho browser
+    network_mode: "service:caddy"
+    # NET_ADMIN: quyen chay lenh tc (traffic control / netem)
     cap_add:
       - NET_ADMIN
     environment:
       - HOST=0.0.0.0
       - PORT=3000
-      # CORS_ORIGIN: production nen dat domain cu the, dev co the de *
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
-      # Ten container Caddy de backend goi `docker exec` khi ap dung tc
-      - CADDY_CONTAINER_NAME=caddy_server
-    volumes:
-      # Mount Docker socket: cho phep backend goi `docker exec caddy_server tc ...`
-      # De tc co hieu luc tren Caddy container (noi phuc vu thuc su media/traffic)
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
+      # Dung localhost vi backend va Caddy chia se network namespace
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
-    networks:
-      - app-network
+    depends_on:
+      - caddy
 
 networks:
   app-network:

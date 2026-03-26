@@ -45,8 +45,9 @@
     }
 
     # Proxy API request den backend Node.js
+    # Dung localhost vi backend va Caddy share cung network namespace
     handle /api/* {
-        reverse_proxy backend:3000
+        reverse_proxy localhost:3000
     }
 
     # Serve frontend React SPA (fallback ve index.html cho client-side routing)
