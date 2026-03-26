@@ -10,10 +10,6 @@ services:
       - "80:80"        # HTTP (Caddy tu dong redirect sang HTTPS)
       - "443:443"      # HTTPS / HTTP2
       - "443:443/udp"  # HTTP/3 (QUIC) - bat buoc phai mo UDP 443
-    environment:
-      # Co domain thi dat SITE_ADDRESS=your-domain.com
-      # Mac dinh :443 = HTTPS voi self-signed cert (HTTP/3 hoat dong)
-      - SITE_ADDRESS=${SITE_ADDRESS:-:443}
     volumes:
       - ./caddy_config/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./media:/srv/media:ro

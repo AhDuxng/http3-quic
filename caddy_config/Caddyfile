@@ -1,22 +1,25 @@
-# Cau hinh global Caddy: bat HTTP/1.1 + HTTP/2 + HTTP/3 (QUIC)
+# Cau hinh global Caddy
 {
-    # Bat tat ca giao thuc, bao gom QUIC/HTTP3
+    # Bat tat ca giao thuc: HTTP/1.1, HTTP/2, HTTP/3 (QUIC)
     servers {
         protocols h1 h2 h3
     }
 
-    # Chi tat OCSP stapling khi dung self-signed cert (internal TLS)
-    # Tranh loi OCSP khi khong co domain that
+    # TAT auto-HTTPS: Caddy se KHONG tu dong xin cert tu Let's Encrypt
+    # Can thiet khi chi co IP (Let's Encrypt khong cap cert cho IP)
+    # Viec cau hinh TLS se duoc lam thu cong bang `tls internal` ben duoi
+    auto_https off
+
+    # Tat OCSP stapling vi dung self-signed cert (khong co OCSP server)
     ocsp_stapling off
 }
 
-# FILL: Dat bien moi truong trong file .env:
-# - Co domain: SITE_ADDRESS=your-domain.com -> Caddy tu cap TLS Let's Encrypt
-# - Chi co IP (default): SITE_ADDRESS=:443 -> Caddy dung self-signed TLS (internal)
-# Luu y: HTTP/3 (QUIC) bat buoc can TLS nen SITE_ADDRESS khong duoc la :80
-{$SITE_ADDRESS:":443"} {
-    # Su dung TLS self-signed (internal) - phu hop khi khong co domain
-    # Neu SITE_ADDRESS = domain.com: xoa dong nay de Caddy tu dong dung Let's Encrypt
+# Lang nghe HTTPS tren port 443 (ca TCP va UDP cho HTTP/3)
+# Dung :443 thay vi IP cu the de Caddy bind dung
+:443 {
+    # Dung self-signed cert noi bo (internal CA cua Caddy)
+    # Browser se canh bao lan dau, bam "Proceed anyway" la xong
+    # HTTP/3 (QUIC) se hoat dong sau khi browser chap nhan cert
     tls internal
 
     # Nen response de giam bandwidth
@@ -52,4 +55,9 @@
     handle {
         reverse_proxy frontend:80
     }
+}
+
+# Redirect HTTP (port 80) -> HTTPS (port 443)
+:80 {
+    redir https://{host}{uri} permanent
 }
