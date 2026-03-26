@@ -1,39 +1,54 @@
+# Cau hinh global Caddy: bat HTTP/1.1 + HTTP/2 + HTTP/3 (QUIC)
 {
+    # Bat tat ca giao thuc, bao gom QUIC/HTTP3
     servers {
         protocols h1 h2 h3
     }
+
+    # Chi tat OCSP stapling khi dung self-signed cert (internal TLS)
+    # Tranh loi OCSP khi khong co domain that
+    ocsp_stapling off
 }
 
-# FILL: Dat SITE_ADDRESS trong file .env o root project:
-# 1) Co domain: SITE_ADDRESS=your-domain.com (Caddy tu cap TLS Let's Encrypt)
-# 2) Chi co IP: SITE_ADDRESS=:80 (chay HTTP, khong co cert public cho IP)
-{$SITE_ADDRESS} {
+# FILL: Dat bien moi truong trong file .env:
+# - Co domain: SITE_ADDRESS=your-domain.com -> Caddy tu cap TLS Let's Encrypt
+# - Chi co IP (default): SITE_ADDRESS=:443 -> Caddy dung self-signed TLS (internal)
+# Luu y: HTTP/3 (QUIC) bat buoc can TLS nen SITE_ADDRESS khong duoc la :80
+{$SITE_ADDRESS:":443"} {
+    # Su dung TLS self-signed (internal) - phu hop khi khong co domain
+    # Neu SITE_ADDRESS = domain.com: xoa dong nay de Caddy tu dong dung Let's Encrypt
+    tls internal
+
+    # Nen response de giam bandwidth
     encode zstd gzip
 
-    # Co the bo sung header bao mat tai day neu can.
-
+    # Xu ly CORS preflight OPTIONS request
     @preflight method OPTIONS
     handle @preflight {
         header Access-Control-Allow-Origin *
-        header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        header Access-Control-Allow-Methods "GET, POST, PUT, OPTIONS"
         header Access-Control-Allow-Headers "Content-Type, Authorization"
         respond "" 204
     }
 
+    # Serve file video/media tinh (video chunks .m4s, manifest .mpd)
     handle /media/* {
         root * /srv
         file_server
     }
 
+    # Serve file video MP4 chia theo bitrate
     handle /media-2/* {
         root * /srv
         file_server
     }
 
+    # Proxy API request den backend Node.js
     handle /api/* {
         reverse_proxy backend:3000
     }
 
+    # Serve frontend React SPA (fallback ve index.html)
     handle {
         reverse_proxy frontend:80
     }

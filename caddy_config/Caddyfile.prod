@@ -1,24 +1,34 @@
 # Cau hinh Caddy cho moi truong PRODUCTION
-# Ho tro HTTP/1.1, HTTP/2 va HTTP/3 (QUIC)
-# TLS tu dong qua Let's Encrypt
+# Ho tro HTTP/1.1, HTTP/2 va HTTP/3 (QUIC) voi TLS tu dong qua Let's Encrypt
 
+# Cai dat global: bat tat ca giao thuc bao gom QUIC/HTTP3
 {
     servers {
         protocols h1 h2 h3
     }
 }
 
-# Domain duoc truyen qua env variable $DOMAIN
+# $DOMAIN nen la domain that (vi du: video.example.com)
+# -> Caddy se tu dong lay cert Let's Encrypt -> HTTPS -> HTTP/3 hoat dong
+# QUAN TRONG: Neu chi co IP, dung CANH BAO: Let's Encrypt KHONG cap cert cho IP
+# -> Trong truong hop IP: dung Caddyfile (dev) voi `tls internal`
 {$DOMAIN} {
     # Nen response de giam bandwidth
     encode zstd gzip
 
-    # CORS headers
+    # CORS headers cho tat ca response
     header Access-Control-Allow-Origin *
-    header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+    header Access-Control-Allow-Methods "GET, POST, PUT, OPTIONS"
+    header Access-Control-Allow-Headers "Content-Type, Authorization"
 
-    # Serve file media tinh (video chunks, manifest)
+    # Serve file media tinh (video chunks .m4s, manifest .mpd)
     handle /media/* {
+        root * /srv
+        file_server
+    }
+
+    # Serve file video MP4 chia theo bitrate
+    handle /media-2/* {
         root * /srv
         file_server
     }

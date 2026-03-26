@@ -1,32 +1,36 @@
 # docker-compose.prod.yml - Cau hinh cho moi truong PRODUCTION
 #
 # Khac voi dev:
-#   - Dung Caddyfile.prod (TLS tu dong qua Let's Encrypt, ho tro h2)
-#   - Khong co curl-client (giam attack surface)
-#   - CORS_ORIGIN nen duoc dat thanh domain cu the
+#   - Dung Caddyfile.prod (TLS tu dong Let's Encrypt voi domain that)
+#   - HTTP/3 (QUIC) hoat dong day du khi co domain + TLS
+#   - Backend goi `docker exec caddy_server tc` de ap dung traffic shaping
 #
 # Truoc khi deploy:
-#   1. Set bien moi truong $DOMAIN trong shell hoac file .env
+#   1. Dat bien $DOMAIN trong shell hoac file .env (vi du: DOMAIN=video.example.com)
 #   2. Build frontend: cd frontend && npm run build
 #   3. Chay: docker compose -f docker-compose.prod.yml up -d
 
 version: '3.8'
 
 services:
-  # Caddy - Reverse proxy voi TLS tu dong (Let's Encrypt) va HTTP/3
+  # Caddy - Reverse proxy voi TLS tu dong (Let's Encrypt) va HTTP/3 (QUIC)
   caddy:
     image: caddy:latest
     container_name: caddy_server
     restart: unless-stopped
+    # NET_ADMIN: can thiet de backend goi `docker exec caddy_server tc` len container nay
+    cap_add:
+      - NET_ADMIN
     ports:
-      - "80:80"        # HTTP (Caddy tu redirect sang HTTPS)
+      - "80:80"        # HTTP (Caddy tu dong redirect sang HTTPS)
       - "443:443"      # HTTPS (HTTP/1.1, HTTP/2)
-      - "443:443/udp"  # HTTP/3 (QUIC)
+      - "443:443/udp"  # HTTP/3 (QUIC) - bat buoc mo UDP port 443
     volumes:
       - ./caddy_config/Caddyfile.prod:/etc/caddy/Caddyfile
       - ./media:/srv/media
+      - ./media-2:/srv/media-2
       - ./frontend/dist:/srv/frontend
-      - caddy_data:/data    # TLS certs tu Let's Encrypt
+      - caddy_data:/data    # TLS certs Let's Encrypt (tu dong gia han)
       - caddy_config:/config
     networks:
       - app-network
@@ -36,14 +40,22 @@ services:
     build: ./backend
     container_name: node_backend
     restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
     networks:
       - app-network
     environment:
       - HOST=0.0.0.0
       - PORT=3000
-      # CORS_ORIGIN nen dat thanh domain cu the o production thay vi wildcard
-      # Vi du: CORS_ORIGIN=https://yourdomain.com
+      # CORS_ORIGIN nen dat thanh domain cu the o production
+      # Vi du: CORS_ORIGIN=https://video.example.com
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      # Ten container Caddy de backend goi `docker exec` ap dung tc
+      - CADDY_CONTAINER_NAME=caddy_server
+    volumes:
+      # Docker socket: cho phep backend chay `docker exec caddy_server tc ...`
+      # Tc tren Caddy container se gia lap network condition THUC SU den browser
+      - /var/run/docker.sock:/var/run/docker.sock:ro
 
 networks:
   app-network:

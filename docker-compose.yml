@@ -3,19 +3,22 @@ services:
     image: caddy:2.8-alpine
     container_name: caddy_server
     restart: unless-stopped
+    # NET_ADMIN: can thiet de backend goi `docker exec caddy_server tc` len Caddy
+    cap_add:
+      - NET_ADMIN
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "80:80"        # HTTP (Caddy tu dong redirect sang HTTPS)
+      - "443:443"      # HTTPS / HTTP2
+      - "443:443/udp"  # HTTP/3 (QUIC) - bat buoc phai mo UDP 443
     environment:
-      # FILL: Neu ban co domain thi dat SITE_ADDRESS=your-domain.com
-      # FILL: Neu chi co server IP thi dat SITE_ADDRESS=:80 de chay HTTP
-      - SITE_ADDRESS=${SITE_ADDRESS:-:80}
+      # Co domain thi dat SITE_ADDRESS=your-domain.com
+      # Mac dinh :443 = HTTPS voi self-signed cert (HTTP/3 hoat dong)
+      - SITE_ADDRESS=${SITE_ADDRESS:-:443}
     volumes:
       - ./caddy_config/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./media:/srv/media:ro
       - ./media-2:/srv/media-2:ro
-      - caddy_data:/data
+      - caddy_data:/data    # TLS cert (Let's Encrypt hoac self-signed)
       - caddy_config:/config
     depends_on:
       - frontend
@@ -38,14 +41,20 @@ services:
       dockerfile: Dockerfile
     container_name: node_backend
     restart: unless-stopped
+    # NET_ADMIN: de co the chay tc qua docker exec vao caddy container
     cap_add:
       - NET_ADMIN
     environment:
       - HOST=0.0.0.0
       - PORT=3000
-      # FILL: Production nen dung origin cu the, vi du https://your-domain.com
-      # FILL: Neu chi demo nhanh bang IP co the dung * tam thoi
+      # CORS_ORIGIN: production nen dat domain cu the, dev co the de *
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      # Ten container Caddy de backend goi `docker exec` khi ap dung tc
+      - CADDY_CONTAINER_NAME=caddy_server
+    volumes:
+      # Mount Docker socket: cho phep backend goi `docker exec caddy_server tc ...`
+      # De tc co hieu luc tren Caddy container (noi phuc vu thuc su media/traffic)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
       interval: 30s

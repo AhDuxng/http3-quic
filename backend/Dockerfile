@@ -1,6 +1,8 @@
 FROM node:20-alpine
 
-RUN apk add --no-cache dumb-init iproute2 wget
+# Cai iproute2 (tc/netem cho local fallback), docker-cli (goi docker exec vao caddy),
+# wget (healthcheck), dumb-init (quan ly process)
+RUN apk add --no-cache dumb-init iproute2 wget docker-cli
 
 ENV NODE_ENV=production
 WORKDIR /app

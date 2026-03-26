@@ -12,6 +12,8 @@ import { StreamTelemetryCard } from "./StreamTelemetryCard";
 // Props component
 interface VideoPlayerProps {
   manifestUrl: string;
+  // Callback de App.jsx nhan giao thuc HTTP thuc te dang duoc dung
+  onProtocolChange?: (protocol: string) => void;
 }
 
 // Handle de App.jsx goi reset tu ben ngoai qua ref
@@ -20,7 +22,7 @@ export interface VideoPlayerHandle {
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
-  ({ manifestUrl }, ref) => {
+  ({ manifestUrl, onProtocolChange }, ref) => {
     const {
       videoRef, representations, isPlaying, stats,
       activeScenarioId, qualitySelection, isAutoQuality,
@@ -29,6 +31,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     // Expose resetStats cho parent (App.jsx) qua ref
     useImperativeHandle(ref, () => ({ reset: resetStats }), [resetStats]);
+
+    // Notify parent khi protocolLabel thay doi
+    useEffect(() => {
+      if (onProtocolChange && stats.protocolLabel) {
+        onProtocolChange(stats.protocolLabel);
+      }
+    }, [stats.protocolLabel, onProtocolChange]);
 
     // UI-only state: bo loc log, che do man hinh
     const [isManualMode, setIsManualMode] = useState(false);
@@ -80,11 +89,17 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 onClick={togglePlayPause}
               />
 
-              {/* Badge giao thuc - goc tren trai */}
+              {/* Badge giao thuc - goc tren trai - hien thi protocol thuc te tu Performance API */}
               <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/70 rounded px-2.5 py-1">
-                <FaWifi className="text-blue-400 w-3 h-3" />
+                <FaWifi className={`w-3 h-3 ${
+                  stats.protocolLabel.includes("h3") || stats.protocolLabel.includes("QUIC")
+                    ? "text-blue-400"
+                    : stats.protocolLabel.includes("h2") || stats.protocolLabel.includes("HTTP/2")
+                      ? "text-emerald-400"
+                      : "text-yellow-400"
+                }`} />
                 <span className="text-white text-[11px] font-mono font-semibold tracking-wider">
-                  HTTP/3 (QUIC)
+                  {stats.protocolLabel}
                 </span>
               </div>
 

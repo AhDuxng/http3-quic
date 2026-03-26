@@ -34,8 +34,42 @@ function createApiRouter() {
   });
 
   // POST /api/network-scenario
-  // Xy ly limit bang thong hoac delay qua "tc"
+  // Xy ly limit bang thong hoac delay qua tc (chay tren Caddy container)
   router.post("/network-scenario", applyNetworkScenario);
+
+  // GET /api/protocol-info
+  // Tra ve thong tin giao thuc HTTP dang duoc dung giua browser va Caddy
+  // Caddy forward header X-Forwarded-Proto va co the them Via/X-Protocol
+  router.get("/protocol-info", (req, res) => {
+    // X-Forwarded-Proto: giao thuc browser dung de den Caddy (https = co TLS)
+    const forwardedProto = req.headers["x-forwarded-proto"] || "";
+    // Via header: co the chua thong tin version HTTP (vi du: "2 caddy")
+    const via = req.headers["via"] || "";
+    // Caddy them x-forwarded-for cho IP thuc
+    const forwardedFor = req.headers["x-forwarded-for"] || "";
+
+    // Phan tich giao thuc dang dung:
+    // - HTTPS + via "3" hoac "h3" = HTTP/3 (QUIC)
+    // - HTTPS + http/2 = HTTP/2
+    // - HTTPS = HTTP/1.1 voi TLS
+    // - HTTP = HTTP/1.1 plain
+    let detectedProtocol = "HTTP/1.1";
+    const viaLower = via.toLowerCase();
+    if (viaLower.includes("h3") || viaLower.includes("/3") || viaLower.includes("quic")) {
+      detectedProtocol = "HTTP/3 (QUIC)";
+    } else if (forwardedProto === "https" || req.secure) {
+      detectedProtocol = "HTTPS";
+    }
+
+    res.json({
+      protocol: detectedProtocol,
+      forwardedProto,
+      via,
+      forwardedFor,
+      // Thong tin request hien tai tu backend perspective (luon la HTTP vi backend o trong Docker)
+      httpVersion: req.httpVersion,
+    });
+  });
 
   return router;
 }

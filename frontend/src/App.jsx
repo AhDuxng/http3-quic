@@ -1,16 +1,31 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import VideoPlayer from "./features/video/components/VideoPlayer";
 import { useVideoInfo } from "./features/video/hooks/useVideoInfo";
 import { FaExchangeAlt } from "react-icons/fa";
 import "./App.css";
 
 // Cau hinh nguon video
-// Luu y: "dash" (media/) dung codec HEVC (hvc1.x) - trinh duyet KHONG ho tro qua MSE/dash.js
+// "dash" (media/) dung codec HEVC (hvc1.x) - trinh duyet KHONG ho tro qua MSE/dash.js
 // "media2" (media-2/) dung codec H.264 (avc1.x) - ho tro toan bo trinh duyet
 const VIDEO_SOURCES = {
   media2: { manifestUrl: "/media-2/dash/stream.mpd", label: "Media-2 (H.264 DASH)" },
   dash: { manifestUrl: "/media/stream.mpd", label: "HEVC DASH (unsupported)" },
 };
+
+// Lay mau badge va label tuong ung voi giao thuc dang dung
+function getProtocolBadge(protocol) {
+  const p = protocol.toLowerCase();
+  if (p.includes("h3") || p.includes("quic")) {
+    return { bg: "bg-blue-600", dot: "bg-white animate-pulse", text: "HTTP/3 (QUIC)" };
+  }
+  if (p.includes("h2") || p.includes("http/2")) {
+    return { bg: "bg-emerald-600", dot: "bg-white", text: "HTTP/2" };
+  }
+  if (p.includes("https") || p.includes("tls")) {
+    return { bg: "bg-amber-500", dot: "bg-white", text: "HTTPS / H1.1" };
+  }
+  return { bg: "bg-slate-500", dot: "bg-white", text: protocol || "Detecting..." };
+}
 
 function App() {
   // Ref de goi VideoPlayer.reset() tu header khi nhan "Reset Stats"
@@ -21,12 +36,21 @@ function App() {
   // Nguon video dang hien thi: "media2" (mac dinh, H.264) | "dash" (HEVC)
   const [activeSource, setActiveSource] = useState("media2");
 
+  // Giao thuc HTTP thuc te detect tu Performance API (cap nhat theo thoi gian thuc)
+  const [detectedProtocol, setDetectedProtocol] = useState("Detecting...");
+
+  // Callback nhan protocol tu VideoPlayer component
+  const handleProtocolChange = useCallback((protocol) => {
+    setDetectedProtocol(protocol);
+  }, []);
+
   // Chuyen doi nguon video
   const toggleSource = () => {
     setActiveSource((prev) => (prev === "dash" ? "media2" : "dash"));
   };
 
   const currentSource = VIDEO_SOURCES[activeSource];
+  const badge = getProtocolBadge(detectedProtocol);
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
@@ -37,10 +61,11 @@ function App() {
         <div className="flex items-center gap-3">
           <span className="font-extrabold text-slate-900 text-lg tracking-tight">ADTUBE</span>
           <span className="text-slate-400 text-xs font-medium tracking-widest uppercase">Analyzer</span>
-          {/* Badge HTTP/3 */}
-          <span className="flex items-center gap-1.5 bg-blue-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-full tracking-wide">
-            <span className="w-1.5 h-1.5 bg-white rounded-full" />
-            HTTP/3 ACTIVE
+
+          {/* Badge giao thuc HTTP - hien thi trang thai thuc te (tu Performance API) */}
+          <span className={`flex items-center gap-1.5 ${badge.bg} text-white text-[10px] font-bold px-2.5 py-1 rounded-full tracking-wide transition-colors duration-500`}>
+            <span className={`w-1.5 h-1.5 ${badge.dot} rounded-full`} />
+            {badge.text}
           </span>
         </div>
 
@@ -81,6 +106,7 @@ function App() {
             key={activeSource}
             ref={playerRef}
             manifestUrl={currentSource.manifestUrl}
+            onProtocolChange={handleProtocolChange}
           />
         ) : (
           /* Trang thai Loading / Error */

@@ -47,6 +47,41 @@ function formatBitrateKbps(kbps: number): string {
   return `${safeKbps.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kbps`;
 }
 
+/**
+ * Detect giao thuc HTTP thuc te tu Performance Resource Timing API.
+ * Browser expose `entry.nextHopProtocol` cho biet giao thuc duoc dung:
+ *   "h3"      -> HTTP/3 (QUIC) - day la muc tieu cua du an nay
+ *   "h2"      -> HTTP/2
+ *   "http/1.1"-> HTTP/1.1
+ *   ""        -> Khong co thong tin (co the cross-origin hoac khong ho tro)
+ *
+ * @param urlFragment - Phan URL de loc entry (vi du: "/media-2/" hoac "/media/")
+ * @returns Label giao thuc de hien thi tren UI
+ */
+function detectProtocolFromPerformance(urlFragment?: string): string {
+  try {
+    const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+    // Lay 10 entry gan nhat (nhieu nhat), tim entry co URL khop
+    const relevant = entries
+      .filter((e) => !urlFragment || e.name.includes(urlFragment))
+      .slice(-10);
+
+    // Tim entry co nextHopProtocol ro rang nhat
+    for (let i = relevant.length - 1; i >= 0; i--) {
+      const proto = (relevant[i] as any).nextHopProtocol as string | undefined;
+      if (!proto) continue;
+      const p = proto.toLowerCase();
+      if (p === "h3" || p === "h3-29" || p.includes("quic")) return "HTTP/3 (QUIC)";
+      if (p === "h2") return "HTTP/2";
+      if (p.startsWith("http/1")) return "HTTP/1.1";
+    }
+
+    // Neu khong tim duoc trong /media: thu voi tat ca entries
+    if (urlFragment) return detectProtocolFromPerformance(undefined);
+  } catch { /* API co the khong duoc ho tro */ }
+  return "DASH / HTTPS"; // Fallback khi khong detect duoc
+}
+
 // ===== Hook chinh =====
 
 export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
@@ -362,6 +397,10 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         const connectionType = conn?.effectiveType ?? "—";
         const estimatedBandwidthMbps = typeof conn?.downlink === "number" ? conn.downlink : 0;
 
+        // Detect giao thuc HTTP thuc te tu Performance Resource Timing API
+        // nextHopProtocol = "h3" khi browser ket noi qua QUIC/HTTP3
+        const protocolLabel = detectProtocolFromPerformance("/media");
+
         setStats((prev) => ({
           ...prev,
           bufferSeconds,
@@ -373,6 +412,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
           duration: Number.isFinite(duration) ? duration : 0,
           connectionType,
           estimatedBandwidthMbps,
+          protocolLabel,
         }));
       } catch { /* player da bi huy */ }
     }, STATS_POLL_INTERVAL_MS);
