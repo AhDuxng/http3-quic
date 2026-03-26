@@ -46,6 +46,11 @@ tmp/
 
 # Docker / local cert outputs
 caddy_config/caddy-local-root.crt
+# TLS cert files (server-specific, khong commit vao git)
+# Tao bang: ./scripts/setup-certs.sh <SERVER_IP>
+caddy_config/certs/*.crt
+caddy_config/certs/*.key
+caddy_config/certs/*.pem
 
 # ===== Media files =====
 # Khong day media len git

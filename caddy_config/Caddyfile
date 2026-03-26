@@ -1,26 +1,24 @@
 # Cau hinh global Caddy
 {
+    # Tat auto_https: Caddy KHONG tu dong xin cert tu Let's Encrypt
+    # Can thiet khi chi co IP (Let's Encrypt khong cap cert cho IP)
+    auto_https off
+
     # Bat tat ca giao thuc: HTTP/1.1, HTTP/2, HTTP/3 (QUIC)
     servers {
         protocols h1 h2 h3
     }
 
-    # TAT auto-HTTPS: Caddy se KHONG tu dong xin cert tu Let's Encrypt
-    # Can thiet khi chi co IP (Let's Encrypt khong cap cert cho IP)
-    # Viec cau hinh TLS se duoc lam thu cong bang `tls internal` ben duoi
-    auto_https off
-
-    # Tat OCSP stapling vi dung self-signed cert (khong co OCSP server)
+    # Tat OCSP stapling (khong co OCSP server voi self-signed cert)
     ocsp_stapling off
 }
 
-# Lang nghe HTTPS tren port 443 (ca TCP va UDP cho HTTP/3)
-# Dung :443 thay vi IP cu the de Caddy bind dung
+# HTTPS - port 443 (TCP cho H1/H2, UDP cho H3/QUIC)
+# Cert duoc tao boi script scripts/setup-certs.sh truoc khi deploy
 :443 {
-    # Dung self-signed cert noi bo (internal CA cua Caddy)
-    # Browser se canh bao lan dau, bam "Proceed anyway" la xong
-    # HTTP/3 (QUIC) se hoat dong sau khi browser chap nhan cert
-    tls internal
+    # Dung cert file truc tiep (tranh xung dot TLS automation policy)
+    # Cert trong caddy_config/certs/ duoc tao voi IP SAN chinh xac
+    tls /etc/caddy/certs/server.crt /etc/caddy/certs/server.key
 
     # Nen response de giam bandwidth
     encode zstd gzip
@@ -51,13 +49,13 @@
         reverse_proxy backend:3000
     }
 
-    # Serve frontend React SPA (fallback ve index.html)
+    # Serve frontend React SPA (fallback ve index.html cho client-side routing)
     handle {
         reverse_proxy frontend:80
     }
 }
 
-# Redirect HTTP (port 80) -> HTTPS (port 443)
+# HTTP - port 80: tu dong redirect sang HTTPS
 :80 {
     redir https://{host}{uri} permanent
 }

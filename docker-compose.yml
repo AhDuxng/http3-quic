@@ -11,10 +11,13 @@ services:
       - "443:443"      # HTTPS / HTTP2
       - "443:443/udp"  # HTTP/3 (QUIC) - bat buoc phai mo UDP 443
     volumes:
-      - ./caddy_config/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Mount toan bo thu muc caddy_config vao /etc/caddy
+      # Bao gom: Caddyfile, certs/server.crt, certs/server.key
+      # Cert duoc tao boi scripts/setup-certs.sh truoc khi deploy
+      - ./caddy_config:/etc/caddy:ro
       - ./media:/srv/media:ro
       - ./media-2:/srv/media-2:ro
-      - caddy_data:/data    # TLS cert (Let's Encrypt hoac self-signed)
+      - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - frontend

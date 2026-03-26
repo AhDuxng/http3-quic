@@ -1,0 +1,3 @@
+# Thu muc nay chua TLS cert cho server
+# Cert duoc tao bang script: ./scripts/setup-certs.sh <SERVER_IP>
+# File cert KHONG duoc commit vao git (se bi ignore)
