@@ -56,3 +56,5 @@ caddy_config/certs/*.pem
 # Khong day media len git
 media/
 media-2/
+
+logs/
