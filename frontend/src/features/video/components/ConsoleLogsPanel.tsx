@@ -40,7 +40,10 @@ export function ConsoleLogsPanel({
     if (!logFilter.trim()) return logs;
     const kw = logFilter.toLowerCase();
     return logs.filter(
-      (l) => l.message.toLowerCase().includes(kw) || l.level.toLowerCase().includes(kw),
+      (l) =>
+        l.message.toLowerCase().includes(kw)
+        || l.level.toLowerCase().includes(kw)
+        || l.statsSnapshot.protocolLabel.toLowerCase().includes(kw),
     );
   }, [logs, logFilter]);
 
@@ -56,21 +59,22 @@ export function ConsoleLogsPanel({
       "EstimatedBandwidth_Mbps", "IsAutoQuality", "ActiveScenario",
     ].join(",");
 
-    const rows = filteredLogs.map((l) =>
-      [
+    const rows = filteredLogs.map((l) => {
+      const snap = l.statsSnapshot;
+      return [
         l.timestamp, l.level, `"${l.message.replace(/"/g, '""')}"`,
-        stats.resolutionLabel, stats.bitrateKbps, stats.avgThroughputKbps,
-        stats.bufferSeconds.toFixed(2), stats.fpsLabel, stats.droppedFrames,
-        stats.totalFrames, stats.latencyMs, stats.jitterMs, stats.rttMs,
-        stats.downloadSpeedKbps, stats.lastSegmentSizeKB,
-        stats.lastSegmentDurationMs, stats.totalDownloadedMB.toFixed(2),
-        stats.rebufferCount, stats.rebufferDurationMs, stats.qualitySwitchCount,
-        stats.currentTime.toFixed(2), stats.duration.toFixed(2),
-        stats.codecLabel, stats.qualityIndex, stats.qualityCount,
-        stats.protocolLabel, stats.connectionType, stats.estimatedBandwidthMbps,
-        isAutoQuality, activeScenario.label,
-      ].join(","),
-    );
+        snap.resolutionLabel, snap.bitrateKbps, snap.avgThroughputKbps,
+        snap.bufferSeconds.toFixed(2), snap.fpsLabel, snap.droppedFrames,
+        snap.totalFrames, snap.latencyMs, snap.jitterMs, snap.rttMs,
+        snap.downloadSpeedKbps, snap.lastSegmentSizeKB,
+        snap.lastSegmentDurationMs, snap.totalDownloadedMB.toFixed(2),
+        snap.rebufferCount, snap.rebufferDurationMs, snap.qualitySwitchCount,
+        snap.currentTime.toFixed(2), snap.duration.toFixed(2),
+        snap.codecLabel, snap.qualityIndex, snap.qualityCount,
+        snap.protocolLabel, snap.connectionType, snap.estimatedBandwidthMbps,
+        l.isAutoQuality, l.activeScenarioLabel,
+      ].join(",");
+    });
 
     return `${header}\n${rows.join("\n")}`;
   };
@@ -120,7 +124,9 @@ export function ConsoleLogsPanel({
       }),
       "",
       "── EVENT LOG ──",
-      ...filteredLogs.map((l) => `  [${l.timestamp}] [${l.level}] ${l.message}`),
+      ...filteredLogs.map(
+        (l) => `  [${l.timestamp}] [${l.level}] [${l.statsSnapshot.protocolLabel}] ${l.message}`,
+      ),
       "",
       separator,
     ];
@@ -145,7 +151,7 @@ export function ConsoleLogsPanel({
             onClick={() => {
               if (filteredLogs.length === 0) return;
               const csv = generateFullLogCSV();
-              const blob = new Blob([csv], { type: "text/csv" });
+              const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
               const url = URL.createObjectURL(blob);
               const a = document.createElement("a");
               a.href = url;
@@ -191,12 +197,18 @@ export function ConsoleLogsPanel({
           filteredLogs.map((log) => {
             const style = LOG_LEVEL_STYLE[log.level];
             return (
-              <div key={log.id} className="flex gap-2 px-3 py-2 hover:bg-slate-50 transition-colors">
+              <div key={log.id} className="grid grid-cols-[64px_44px_96px_minmax(0,1fr)] gap-2 px-3 py-2 hover:bg-slate-50 transition-colors items-start">
                 <span className="text-slate-400 text-[10px] font-mono whitespace-nowrap pt-0.5">
                   {log.timestamp}
                 </span>
                 <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 h-fit ${style.color} ${style.bg}`}>
                   {style.label}
+                </span>
+                <span
+                  className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-700 whitespace-nowrap"
+                  title="Network protocol"
+                >
+                  {log.statsSnapshot.protocolLabel}
                 </span>
                 <span className="text-slate-600 text-[11px] leading-relaxed break-words min-w-0">
                   {log.message}

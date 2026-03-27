@@ -17,6 +17,9 @@ export interface LogEntry {
   timestamp: string; // dinh dang HH:mm:ss.cs
   level: LogLevel;
   message: string;
+  statsSnapshot: StreamStats;
+  isAutoQuality: boolean;
+  activeScenarioLabel: string;
 }
 
 // Mot ban ghi thay doi chat luong (dung cho quality log panel)

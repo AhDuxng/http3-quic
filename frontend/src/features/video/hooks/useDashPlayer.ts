@@ -121,6 +121,9 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   const [qualityLog, setQualityLog] = useState<QualityLogItem[]>([]);
   const [stats, setStats] = useState<StreamStats>(DEFAULT_STATS);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const statsRef = useRef<StreamStats>(DEFAULT_STATS);
+  const isAutoQualityRef = useRef<boolean>(true);
+  const activeScenarioIdRef = useRef<NetworkScenarioId>(activeScenarioId);
 
   // Map id -> scenario, O(1) lookup
   const scenarioById = useMemo(() => {
@@ -129,16 +132,35 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     return map;
   }, [scenarios]);
 
+  const updateStats = useCallback((updater: (prev: StreamStats) => StreamStats) => {
+    setStats((prev) => {
+      const next = updater(prev);
+      statsRef.current = next;
+      return next;
+    });
+  }, []);
+
   // Them mot ban ghi vao console log
-  const addLog = useCallback((level: LogLevel, message: string) => {
+  const addLog = useCallback((
+    level: LogLevel,
+    message: string,
+    statsPatch?: Partial<StreamStats>
+  ) => {
+    const scenarioLabel = scenarioById.get(activeScenarioIdRef.current)?.label ?? "—";
     const entry: LogEntry = {
       id: ++logIdRef.current,
       timestamp: formatTimestamp(new Date()),
       level,
       message,
+      statsSnapshot: {
+        ...statsRef.current,
+        ...(statsPatch ?? {}),
+      },
+      isAutoQuality: isAutoQualityRef.current,
+      activeScenarioLabel: scenarioLabel,
     };
     setLogs((prev) => [entry, ...prev].slice(0, MAX_LOG_ENTRIES));
-  }, []);
+  }, [scenarioById]);
 
   // Dong bo representations va bitrate/resolution tu player vao state
   const syncRepresentationsAndBitrate = useCallback(() => {
@@ -172,7 +194,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         }
       } catch { /* bo qua */ }
 
-      setStats((prev) => ({
+      updateStats((prev) => ({
         ...prev,
         bitrateKbps: getRepBitrateKbps(current),
         resolutionLabel: getResolutionLabel(current),
@@ -186,10 +208,19 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   // Reset toan bo stats va log ve gia tri mac dinh
   const resetStats = useCallback(() => {
     setStats(DEFAULT_STATS);
+    statsRef.current = DEFAULT_STATS;
     setQualityLog([]);
     setLogs([]);
     setRepresentations([]);
   }, []);
+
+  useEffect(() => {
+    isAutoQualityRef.current = isAutoQuality;
+  }, [isAutoQuality]);
+
+  useEffect(() => {
+    activeScenarioIdRef.current = activeScenarioId;
+  }, [activeScenarioId]);
 
   // ===== Effect: Khoi tao va cleanup dash.js player =====
   useEffect(() => {
@@ -253,7 +284,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
 
         // Dem so lan chuyen quality
         qualitySwitchCountRef.current += 1;
-        setStats((prev) => ({ ...prev, qualitySwitchCount: qualitySwitchCountRef.current }));
+        updateStats((prev) => ({ ...prev, qualitySwitchCount: qualitySwitchCountRef.current }));
 
         setQualityLog((prev) =>
           [{ time: formatTimestamp(new Date()), quality, bitrateKbps }, ...prev]
@@ -308,7 +339,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
           totalDownloadedBytesRef.current += bytesLoaded;
           const totalDownloadedMB = Math.round(totalDownloadedBytesRef.current / 1024 / 1024 * 100) / 100;
 
-          setStats((prev) => ({
+          updateStats((prev) => ({
             ...prev,
             lastSegmentSizeKB: Math.round(sizeKB * 10) / 10,
             lastSegmentDurationMs: durationMs,
@@ -327,7 +358,15 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
 
         const kb = bytesLoaded > 0 ? `${(bytesLoaded / 1024).toFixed(1)} KB` : "";
         const latency = durationMs > 0 ? ` Latency: ${durationMs}ms.` : "";
-        addLog("NET", `Segment loaded via DASH/HTTP3.${kb ? ` Size: ${kb}.` : ""}${latency}`);
+        addLog("NET", `Segment loaded via DASH/HTTP3.${kb ? ` Size: ${kb}.` : ""}${latency}`, {
+          lastSegmentSizeKB: bytesLoaded > 0 ? Math.round((bytesLoaded / 1024) * 10) / 10 : 0,
+          lastSegmentDurationMs: durationMs,
+          latencyMs: durationMs,
+          downloadSpeedKbps: durationMs > 0 ? (bytesLoaded * 8) / durationMs : 0,
+          jitterMs: statsRef.current.jitterMs,
+          rttMs: statsRef.current.rttMs,
+          totalDownloadedMB: statsRef.current.totalDownloadedMB,
+        });
       } catch { /* bo qua */ }
     };
 
@@ -401,7 +440,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         // nextHopProtocol = "h3" khi browser ket noi qua QUIC/HTTP3
         const protocolLabel = detectProtocolFromPerformance("/media");
 
-        setStats((prev) => ({
+        updateStats((prev) => ({
           ...prev,
           bufferSeconds,
           avgThroughputKbps,
@@ -425,7 +464,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       if (rebufferStartRef.current !== null) {
         rebufferAccumulatedMsRef.current += Date.now() - rebufferStartRef.current;
         rebufferStartRef.current = null;
-        setStats((prev) => ({ ...prev, rebufferDurationMs: rebufferAccumulatedMsRef.current }));
+        updateStats((prev) => ({ ...prev, rebufferDurationMs: rebufferAccumulatedMsRef.current }));
       }
     };
     const onPause = () => { setIsPlaying(false); addLog("SYS", "Playback paused."); };
@@ -434,7 +473,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     const onWaiting = () => {
       rebufferStartRef.current = Date.now();
       rebufferCountRef.current += 1;
-      setStats((prev) => ({ ...prev, rebufferCount: rebufferCountRef.current }));
+      updateStats((prev) => ({ ...prev, rebufferCount: rebufferCountRef.current }));
       addLog("WARN", `Rebuffering #${rebufferCountRef.current}`);
     };
 
@@ -451,7 +490,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       video?.removeEventListener("waiting", onWaiting);
       try { player.destroy(); } finally { playerRef.current = null; }
     };
-  }, [manifestUrl, syncRepresentationsAndBitrate, addLog]);
+  }, [manifestUrl, syncRepresentationsAndBitrate, addLog, updateStats]);
 
   // Ap dung kich ban mang thong qua Docker tc cua backend
   const applyScenario = useCallback(async (scenario: NetworkScenario) => {
@@ -459,6 +498,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     if (!player) return;
 
     setActiveScenarioId(scenario.id);
+    activeScenarioIdRef.current = scenario.id;
 
     try {
       addLog("SYS", `Applying network scenario: ${scenario.label}...`);
@@ -476,6 +516,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
 
       // Thanh cong, bo gioi han player de DASH tu thich ung voi toc do mang thuc te
       setIsAutoQuality(true);
+      isAutoQualityRef.current = true;
       setQualitySelectionState("auto");
       player.updateSettings({
         streaming: { abr: { autoSwitchBitrate: { video: true }, maxBitrate: { video: -1 } } },
@@ -493,12 +534,14 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
 
     if (value === "auto") {
       setIsAutoQuality(true);
+      isAutoQualityRef.current = true;
       setQualitySelectionState("auto");
       player.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: true } } } });
       addLog("INFO", "Quality mode: Auto ABR");
       return;
     }
     setIsAutoQuality(false);
+    isAutoQualityRef.current = false;
     setQualitySelectionState(value);
     // Manual mode: bo gioi han maxBitrate de nguoi dung co the ep len muc cao nhat (vd 1080p)
     player.updateSettings({
