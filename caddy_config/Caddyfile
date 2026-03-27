@@ -1,29 +1,12 @@
-# Cau hinh global Caddy
 {
-    # Tat auto_https: Caddy KHONG tu dong xin cert tu Let's Encrypt
-    # Can thiet khi chi co IP (Let's Encrypt khong cap cert cho IP)
-    auto_https off
-
-    # Bat tat ca giao thuc: HTTP/1.1, HTTP/2, HTTP/3 (QUIC)
     servers {
         protocols h1 h2 h3
     }
-
-    # Tat OCSP stapling (khong co OCSP server voi self-signed cert)
-    ocsp_stapling off
 }
 
-# HTTPS - port 443 (TCP cho H1/H2, UDP cho H3/QUIC)
-# Cert duoc tao boi script scripts/setup-certs.sh truoc khi deploy
-:443 {
-    # Dung cert file truc tiep (tranh xung dot TLS automation policy)
-    # Cert trong caddy_config/certs/ duoc tao voi IP SAN chinh xac
-    tls /etc/caddy/certs/server.crt /etc/caddy/certs/server.key
-
-    # Nen response de giam bandwidth
+video.duxng.io.vn {
     encode zstd gzip
 
-    # Xu ly CORS preflight OPTIONS request
     @preflight method OPTIONS
     handle @preflight {
         header Access-Control-Allow-Origin *
@@ -32,31 +15,21 @@
         respond "" 204
     }
 
-    # Serve file video/media tinh (video chunks .m4s, manifest .mpd)
     handle /media/* {
         root * /srv
         file_server
     }
 
-    # Serve file video MP4 chia theo bitrate
     handle /media-2/* {
         root * /srv
         file_server
     }
 
-    # Proxy API request den backend Node.js
-    # Dung localhost vi backend va Caddy share cung network namespace
     handle /api/* {
         reverse_proxy localhost:3000
     }
 
-    # Serve frontend React SPA (fallback ve index.html cho client-side routing)
     handle {
         reverse_proxy frontend:80
     }
-}
-
-# HTTP - port 80: tu dong redirect sang HTTPS
-:80 {
-    redir https://{host}{uri} permanent
 }
