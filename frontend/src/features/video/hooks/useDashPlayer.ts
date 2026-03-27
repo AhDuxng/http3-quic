@@ -212,6 +212,18 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     setQualityLog([]);
     setLogs([]);
     setRepresentations([]);
+    // Reset tat ca ref counters de khong bi "nho" gia tri tu phien truoc
+    prevLatencyMsRef.current = null;
+    qualitySwitchCountRef.current = 0;
+    totalDownloadedBytesRef.current = 0;
+    rebufferCountRef.current = 0;
+    rebufferAccumulatedMsRef.current = 0;
+    rebufferStartRef.current = null;
+    lastSegmentInfoRef.current = null;
+    segmentThroughputSamplesRef.current = [];
+    logIdRef.current = 0;
+    lastNetLogRef.current = 0;
+    frameSampleRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -279,12 +291,15 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
 
         const level: LogLevel = newIndex > prevQualityIndex ? "INFO" : "WARN";
         const dir = newIndex > prevQualityIndex ? "upgraded" : "reduced";
-        addLog(level, `Quality ${dir} to ${quality} @ ${formatBitrateKbps(bitrateKbps)}.`);
         prevQualityIndex = newIndex;
 
-        // Dem so lan chuyen quality
+        // Dem so lan chuyen quality TRUOC khi addLog de snapshot co gia tri moi nhat
         qualitySwitchCountRef.current += 1;
         updateStats((prev) => ({ ...prev, qualitySwitchCount: qualitySwitchCountRef.current }));
+
+        addLog(level, `Quality ${dir} to ${quality} @ ${formatBitrateKbps(bitrateKbps)}.`, {
+          qualitySwitchCount: qualitySwitchCountRef.current,
+        });
 
         setQualityLog((prev) =>
           [{ time: formatTimestamp(new Date()), quality, bitrateKbps }, ...prev]
@@ -383,22 +398,28 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
           }));
         }
 
-        // Throttle ghi log NET
+        // Throttle ghi log NET — chi ghi khi co du lieu thuc (tranh de 0 vao statsPatch)
         const now = Date.now();
         if (now - lastNetLogRef.current < NET_LOG_THROTTLE_MS) return;
+        if (bytesLoaded === 0 && durationMs === 0) return; // Khong ghi log khi khong co data
         lastNetLogRef.current = now;
 
         const kb = bytesLoaded > 0 ? `${(bytesLoaded / 1024).toFixed(1)} KB` : "";
         const latency = durationMs > 0 ? ` Latency: ${durationMs}ms.` : "";
-        addLog("NET", `Segment loaded via DASH/HTTP3.${kb ? ` Size: ${kb}.` : ""}${latency}`, {
-          lastSegmentSizeKB: bytesLoaded > 0 ? Math.round((bytesLoaded / 1024) * 10) / 10 : 0,
-          lastSegmentDurationMs: durationMs,
-          latencyMs: durationMs,
-          downloadSpeedKbps: durationMs > 0 ? (bytesLoaded * 8) / durationMs : 0,
-          jitterMs: statsRef.current.jitterMs,
-          rttMs: statsRef.current.rttMs,
-          totalDownloadedMB: statsRef.current.totalDownloadedMB,
-        });
+        // statsPatch chi gom cac truong co gia tri thuc, khong ghi de 0 len statsRef
+        const netPatch: Partial<StreamStats> = {};
+        if (bytesLoaded > 0) {
+          netPatch.lastSegmentSizeKB = Math.round((bytesLoaded / 1024) * 10) / 10;
+          netPatch.totalDownloadedMB = statsRef.current.totalDownloadedMB;
+        }
+        if (durationMs > 0) {
+          netPatch.lastSegmentDurationMs = durationMs;
+          netPatch.latencyMs = durationMs;
+          netPatch.downloadSpeedKbps = (bytesLoaded * 8) / durationMs;
+          netPatch.jitterMs = statsRef.current.jitterMs;
+          netPatch.rttMs = statsRef.current.rttMs;
+        }
+        addLog("NET", `Segment loaded via DASH/HTTP3.${kb ? ` Size: ${kb}.` : ""}${latency}`, netPatch);
       } catch { /* bo qua */ }
     };
 
@@ -491,12 +512,18 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     const video = videoRef.current;
     const onPlay = () => {
       setIsPlaying(true);
-      addLog("SYS", "Playback started.");
       // Ket thuc rebuffer neu dang stall
       if (rebufferStartRef.current !== null) {
         rebufferAccumulatedMsRef.current += Date.now() - rebufferStartRef.current;
         rebufferStartRef.current = null;
         updateStats((prev) => ({ ...prev, rebufferDurationMs: rebufferAccumulatedMsRef.current }));
+        // Log "resume" voi rebufferDuration da cap nhat - day la diem duy nhat co gia tri chinh xac
+        addLog("SYS", `Playback resumed after rebuffer #${rebufferCountRef.current}.`, {
+          rebufferCount: rebufferCountRef.current,
+          rebufferDurationMs: rebufferAccumulatedMsRef.current,
+        });
+      } else {
+        addLog("SYS", "Playback started.");
       }
     };
     const onPause = () => { setIsPlaying(false); addLog("SYS", "Playback paused."); };
@@ -506,7 +533,11 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       rebufferStartRef.current = Date.now();
       rebufferCountRef.current += 1;
       updateStats((prev) => ({ ...prev, rebufferCount: rebufferCountRef.current }));
-      addLog("WARN", `Rebuffering #${rebufferCountRef.current}`);
+      // Truyen statsPatch tuong minh de snapshot log co rebufferCount moi nhat
+      addLog("WARN", `Rebuffering #${rebufferCountRef.current}`, {
+        rebufferCount: rebufferCountRef.current,
+        rebufferDurationMs: rebufferAccumulatedMsRef.current, // duration tai THOI DIEM BAT DAU stall
+      });
     };
 
     video?.addEventListener("play", onPlay);
