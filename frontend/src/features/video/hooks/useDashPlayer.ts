@@ -133,11 +133,11 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   }, [scenarios]);
 
   const updateStats = useCallback((updater: (prev: StreamStats) => StreamStats) => {
-    setStats((prev) => {
-      const next = updater(prev);
-      statsRef.current = next;
-      return next;
-    });
+    // Cập nhật statsRef.current ĐỒNG BỘ ngay lập tức để addLog luôn đọc được giá trị mới nhất
+    // (setStats là bất đồng bộ - React defer việc flush state)
+    const next = updater(statsRef.current);
+    statsRef.current = next;
+    setStats(next);
   }, []);
 
   // Them mot ban ghi vao console log
@@ -297,10 +297,42 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     const onFragmentLoaded = (event: any) => {
       try {
         const req = event?.request;
-        const bytesLoaded = req?.bytesLoaded ?? event?.chunk?.bytes ?? 0;
-        const startTime = req?.requestStartDate ? new Date(req.requestStartDate).getTime() : 0;
-        const endTime = req?.requestEndDate ? new Date(req.requestEndDate).getTime() : Date.now();
-        const durationMs = startTime > 0 ? endTime - startTime : 0;
+
+        // === LAY BYTES: thu nhieu nguon ===
+        const bytesLoaded: number =
+          req?.bytesLoaded ||
+          req?.bytesTotal ||
+          event?.chunk?.bytes ||
+          event?.response?.byteLength ||
+          0;
+
+        // === LAY TIMING: requestStartDate / requestEndDate la nguon chinh ===
+        // Fallback: timing dung Performance.now() neu dash.js khong expose date
+        let startTime = 0;
+        let endTime = 0;
+        if (req?.requestStartDate) {
+          startTime = new Date(req.requestStartDate).getTime();
+        } else if (typeof req?.firstByteDate === "string" || req?.firstByteDate instanceof Date) {
+          startTime = new Date(req.firstByteDate).getTime();
+        }
+        if (req?.requestEndDate) {
+          endTime = new Date(req.requestEndDate).getTime();
+        } else {
+          endTime = Date.now();
+        }
+        const durationMs = startTime > 0 && endTime > startTime ? endTime - startTime : 0;
+
+        // === DEBUG: Log ra console de kiem tra xem co data khong ===
+        // (Co the bo sau khi debug xong)
+        if ((import.meta as any).env?.DEV) {
+          console.debug("[FRAGMENT]", {
+            bytesLoaded,
+            durationMs,
+            startDate: req?.requestStartDate,
+            endDate: req?.requestEndDate,
+            reqKeys: req ? Object.keys(req) : [],
+          });
+        }
 
         // Luu segment info cho polling stats
         if (bytesLoaded > 0) {
