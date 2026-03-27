@@ -88,6 +88,38 @@ NUMERIC_COLS = [
     "EstimatedBandwidth_Mbps",
 ]
 
+#  Các cột TÍCH LŨY: giá trị tăng dần theo thời gian.
+#  Khi thống kê → lấy giá trị CUỐI CÙNG (last), KHÔNG lấy mean.
+CUMULATIVE_COLS = {
+    "TotalDownloaded_MB",
+    "DroppedFrames",
+    "TotalFrames",
+    "RebufferCount",
+    "RebufferDuration_ms",
+    "QualitySwitchCount",
+    "CurrentTime_s",
+    "Duration_s",
+    "QualityCount",
+}
+
+
+def get_metric_value(series: pd.Series, col_name: str) -> float:
+    """Lấy giá trị đại diện cho 1 cột metric.
+    - Cột tích lũy → lấy giá trị cuối cùng (iloc[-1]).
+    - Cột tức thời → lấy trung bình (mean).
+    """
+    s = series.dropna()
+    if s.empty:
+        return float("nan")
+    if col_name in CUMULATIVE_COLS:
+        return float(s.iloc[-1])
+    return float(s.mean())
+
+
+def get_metric_label(col_name: str) -> str:
+    """Trả về nhãn phương pháp tổng hợp cho cột."""
+    return "last" if col_name in CUMULATIVE_COLS else "mean"
+
 #  Đọc & làm sạch CSV
 def load_csv(path: str, label: str) -> pd.DataFrame:
     """Đọc CSV log (UTF-8 BOM), ép kiểu số, thêm cột Label."""
@@ -128,17 +160,19 @@ def print_summary(h2: pd.DataFrame, h3: pd.DataFrame):
     available = [c for c in NUMERIC_COLS if c in h2.columns and c in h3.columns]
     rows = []
     for col in available:
-        h2_mean = h2[col].mean()
-        h3_mean = h3[col].mean()
-        if pd.isna(h2_mean) and pd.isna(h3_mean):
+        h2_val = get_metric_value(h2[col], col)
+        h3_val = get_metric_value(h3[col], col)
+        if pd.isna(h2_val) and pd.isna(h3_val):
             continue
-        delta = h3_mean - h2_mean
-        pct   = (delta / h2_mean * 100) if h2_mean and not pd.isna(h2_mean) else float("nan")
+        agg = get_metric_label(col)
+        delta = h3_val - h2_val
+        pct   = (delta / h2_val * 100) if h2_val and not pd.isna(h2_val) else float("nan")
         arrow = "▲" if delta > 0 else ("▼" if delta < 0 else "=")
         rows.append({
             "Metric":    col,
-            "H2 (mean)": round(h2_mean, 3),
-            "H3 (mean)": round(h3_mean, 3),
+            "Agg":       agg,
+            "H2":        round(h2_val, 3),
+            "H3":        round(h3_val, 3),
             "Δ (H3−H2)": round(delta, 3),
             "Δ%":        f"{arrow} {abs(pct):.1f}%" if not np.isnan(pct) else "N/A",
         })
@@ -200,20 +234,27 @@ def fig_network(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
             "H2": h2[metric].dropna(),
             "H3": h3[metric].dropna(),
         }
-        means = {k: v.mean() for k, v in vals.items()}
+        bar_vals = {k: get_metric_value(v, metric) for k, v in vals.items()}
         x = np.arange(2)
         colors = [PALETTE["H2"], PALETTE["H3"]]
-        bars = ax.bar(x, [means["H2"], means["H3"]], color=colors,
+        bars = ax.bar(x, [bar_vals["H2"], bar_vals["H3"]], color=colors,
                       width=0.5, edgecolor=GRID_COLOR, linewidth=0.8)
         _add_value_labels(ax, bars)
         ax.set_xticks(x)
         ax.set_xticklabels(["HTTP/2", "HTTP/3"], fontsize=9)
+        agg = get_metric_label(metric)
         styled_ax(ax, f"{label}\n({hint})", ylabel=label)
 
-        # Thêm nhỏ median dưới bar
-        ax.text(0.5, -0.18,
-                f"Median  H2={vals['H2'].median():.1f}  H3={vals['H3'].median():.1f}",
-                transform=ax.transAxes, ha="center", fontsize=7, color="#9A9DBF")
+        # Thêm nhỏ median/last dưới bar
+        if metric in CUMULATIVE_COLS:
+            ax.text(0.5, -0.18,
+                    f"Last  H2={vals['H2'].iloc[-1] if len(vals['H2']) else 0:.1f}"
+                    f"  H3={vals['H3'].iloc[-1] if len(vals['H3']) else 0:.1f}",
+                    transform=ax.transAxes, ha="center", fontsize=7, color="#9A9DBF")
+        else:
+            ax.text(0.5, -0.18,
+                    f"Median  H2={vals['H2'].median():.1f}  H3={vals['H3'].median():.1f}",
+                    transform=ax.transAxes, ha="center", fontsize=7, color="#9A9DBF")
 
     # Xoá subplot thừa nếu có
     for idx in range(len(available), 6):
@@ -250,9 +291,9 @@ def fig_quality(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
             "H2": h2[metric].dropna(),
             "H3": h3[metric].dropna(),
         }
-        means = {k: v.mean() for k, v in vals.items()}
+        bar_vals = {k: get_metric_value(v, metric) for k, v in vals.items()}
         x = np.arange(2)
-        bars = ax.bar(x, [means["H2"], means["H3"]],
+        bars = ax.bar(x, [bar_vals["H2"], bar_vals["H3"]],
                       color=[PALETTE["H2"], PALETTE["H3"]],
                       width=0.5, edgecolor=GRID_COLOR, linewidth=0.8)
         _add_value_labels(ax, bars)
@@ -260,9 +301,15 @@ def fig_quality(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
         ax.set_xticklabels(["HTTP/2", "HTTP/3"], fontsize=9)
         styled_ax(ax, f"{label}\n({hint})", ylabel=label)
 
-        ax.text(0.5, -0.18,
-                f"Median  H2={vals['H2'].median():.1f}  H3={vals['H3'].median():.1f}",
-                transform=ax.transAxes, ha="center", fontsize=7, color="#9A9DBF")
+        if metric in CUMULATIVE_COLS:
+            ax.text(0.5, -0.18,
+                    f"Last  H2={vals['H2'].iloc[-1] if len(vals['H2']) else 0:.1f}"
+                    f"  H3={vals['H3'].iloc[-1] if len(vals['H3']) else 0:.1f}",
+                    transform=ax.transAxes, ha="center", fontsize=7, color="#9A9DBF")
+        else:
+            ax.text(0.5, -0.18,
+                    f"Median  H2={vals['H2'].median():.1f}  H3={vals['H3'].median():.1f}",
+                    transform=ax.transAxes, ha="center", fontsize=7, color="#9A9DBF")
 
     for idx in range(len(available), 6):
         axes[idx].set_visible(False)
@@ -393,8 +440,8 @@ def fig_radar(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
         return
 
     labels  = [lab for _, lab, _ in available]
-    h2_vals = np.array([h2[col].mean() for col, _, _ in available])
-    h3_vals = np.array([h3[col].mean() for col, _, _ in available])
+    h2_vals = np.array([get_metric_value(h2[col], col) for col, _, _ in available])
+    h3_vals = np.array([get_metric_value(h3[col], col) for col, _, _ in available])
 
     # Chuẩn hóa: mỗi trục trên nền max(h2, h3)
     combined_max = np.maximum(h2_vals, h3_vals)
@@ -447,17 +494,17 @@ def fig_radar(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 def fig_summary_table(summary_df: pd.DataFrame, out_dir: str):
     """Render bảng tổng hợp dưới dạng hình ảnh."""
     # Chỉ lấy các cột cần hiển thị
-    tbl = summary_df[["Metric", "H2 (mean)", "H3 (mean)", "Δ (H3−H2)", "Δ%"]].copy()
-    tbl = tbl.dropna(subset=["H2 (mean)", "H3 (mean)"])
+    tbl = summary_df[["Metric", "Agg", "H2", "H3", "Δ (H3−H2)", "Δ%"]].copy()
+    tbl = tbl.dropna(subset=["H2", "H3"])
 
     n_rows = len(tbl)
     fig_h  = max(4, 0.45 * n_rows + 1.5)
-    fig, ax = plt.subplots(figsize=(13, fig_h))
+    fig, ax = plt.subplots(figsize=(14, fig_h))
     fig.patch.set_facecolor(BG_COLOR)
     ax.set_facecolor(BG_COLOR)
     ax.axis("off")
 
-    col_widths = [0.32, 0.17, 0.17, 0.17, 0.17]
+    col_widths = [0.28, 0.08, 0.16, 0.16, 0.16, 0.16]
     headers    = list(tbl.columns)
 
     table = ax.table(
@@ -485,8 +532,8 @@ def fig_summary_table(summary_df: pd.DataFrame, out_dir: str):
             cell.set_facecolor(CARD_BG if row_idx % 2 == 0 else "#14172080")
             cell.set_text_props(color=TEXT_COLOR)
             cell.set_edgecolor(GRID_COLOR)
-            # Tô màu cột Δ%
-            if col_idx == 4:
+            # Tô màu cột Δ% (cột index 5 sau khi thêm Agg)
+            if col_idx == 5:
                 if "▲" in delta_pct_str:
                     cell.set_text_props(color="#F5A623")
                 elif "▼" in delta_pct_str:
@@ -560,12 +607,13 @@ def fig_stability(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
         ax = axes[idx]
         h2_v = h2[metric].dropna()
         h3_v = h3[metric].dropna()
-        means = [h2_v.mean(), h3_v.mean()]
-        bars = ax.bar(["HTTP/2", "HTTP/3"], means,
+        bar_vals = [get_metric_value(h2_v, metric), get_metric_value(h3_v, metric)]
+        bars = ax.bar(["HTTP/2", "HTTP/3"], bar_vals,
                       color=[PALETTE["H2"], PALETTE["H3"]],
                       width=0.5, edgecolor=GRID_COLOR, lw=0.8)
         _add_value_labels(ax, bars, fmt="{:.2f}")
-        styled_ax(ax, f"{label}\n({hint})", ylabel=label)
+        agg = get_metric_label(metric)
+        styled_ax(ax, f"{label} ({agg})\n({hint})", ylabel=label)
 
     fig.tight_layout()
     path = os.path.join(out_dir, "8_stability.png")
@@ -725,8 +773,8 @@ def fig_quality_index(h2, h3, out_dir):
         ax = axes[idx]
         h2_v = h2[metric].dropna()
         h3_v = h3[metric].dropna()
-        h2_m  = h2_v.mean()
-        h3_m  = h3_v.mean()
+        h2_m  = get_metric_value(h2_v, metric)
+        h3_m  = get_metric_value(h3_v, metric)
         bars = ax.bar(['HTTP/2', 'HTTP/3'], [h2_m, h3_m],
                       color=[PALETTE['H2'], PALETTE['H3']],
                       width=0.5, edgecolor=GRID_COLOR, lw=0.8)
@@ -737,16 +785,23 @@ def fig_quality_index(h2, h3, out_dir):
                             xy=(bar.get_x() + bar.get_width() / 2, h),
                             xytext=(0, 5), textcoords='offset points',
                             ha='center', va='bottom', fontsize=8, color=TEXT_COLOR)
-        ax.set_title(f'{label}\n({hint})', fontsize=10, fontweight='bold',
+        agg = get_metric_label(metric)
+        ax.set_title(f'{label} ({agg})\n({hint})', fontsize=10, fontweight='bold',
                      color=TEXT_COLOR, pad=6)
         ax.set_ylabel(label, fontsize=9)
         ax.yaxis.grid(True)
         ax.set_axisbelow(True)
         for sp in ax.spines.values():
             sp.set_color(GRID_COLOR)
-        ax.text(0.5, -0.18,
-                f'Median H2={h2_v.median():.2f}  H3={h3_v.median():.2f}',
-                transform=ax.transAxes, ha='center', fontsize=7, color='#9A9DBF')
+        if metric in CUMULATIVE_COLS:
+            ax.text(0.5, -0.18,
+                    f'Last H2={h2_v.iloc[-1] if len(h2_v) else 0:.2f}'
+                    f'  H3={h3_v.iloc[-1] if len(h3_v) else 0:.2f}',
+                    transform=ax.transAxes, ha='center', fontsize=7, color='#9A9DBF')
+        else:
+            ax.text(0.5, -0.18,
+                    f'Median H2={h2_v.median():.2f}  H3={h3_v.median():.2f}',
+                    transform=ax.transAxes, ha='center', fontsize=7, color='#9A9DBF')
 
     for idx in range(len(available), 6):
         axes[idx].set_visible(False)
