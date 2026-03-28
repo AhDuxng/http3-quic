@@ -314,37 +314,88 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         const req = event?.request;
 
         // === LAY BYTES: thu nhieu nguon ===
-        const bytesLoaded: number =
-          req?.bytesLoaded ||
-          req?.bytesTotal ||
-          event?.chunk?.bytes ||
-          event?.response?.byteLength ||
-          0;
+        // bytesLoaded/bytesTotal co the la NaN (mac dinh cua FragmentRequest)
+        // nen phai kiem tra Number.isFinite truoc khi dung
+        let bytesLoaded = 0;
+        if (Number.isFinite(req?.bytesLoaded) && req.bytesLoaded > 0) {
+          bytesLoaded = req.bytesLoaded;
+        } else if (Number.isFinite(req?.bytesTotal) && req.bytesTotal > 0) {
+          bytesLoaded = req.bytesTotal;
+        } else if (event?.response instanceof ArrayBuffer) {
+          bytesLoaded = event.response.byteLength;
+        } else if (Number.isFinite(event?.response?.byteLength) && event.response.byteLength > 0) {
+          bytesLoaded = event.response.byteLength;
+        }
 
-        // === LAY TIMING: requestStartDate / requestEndDate la nguon chinh ===
-        // Fallback: timing dung Performance.now() neu dash.js khong expose date
+        // === LAY TIMING ===
+        // dash.js v5 dung `startDate` / `endDate` (KHONG PHAI requestStartDate / requestEndDate)
+        // Fallback theo thu tu: startDate/endDate -> firstByteDate -> trace array -> Performance API
         let startTime = 0;
         let endTime = 0;
-        if (req?.requestStartDate) {
-          startTime = new Date(req.requestStartDate).getTime();
-        } else if (typeof req?.firstByteDate === "string" || req?.firstByteDate instanceof Date) {
-          startTime = new Date(req.firstByteDate).getTime();
+
+        // 1) Uu tien: req.startDate / req.endDate (dash.js v5+ FragmentRequest)
+        if (req?.startDate) {
+          startTime = req.startDate instanceof Date ? req.startDate.getTime() : new Date(req.startDate).getTime();
         }
-        if (req?.requestEndDate) {
+        // Fallback: requestStartDate (dash.js v3/v4 legacy)
+        if (!startTime && req?.requestStartDate) {
+          startTime = new Date(req.requestStartDate).getTime();
+        }
+        // Fallback: firstByteDate
+        if (!startTime && req?.firstByteDate) {
+          startTime = req.firstByteDate instanceof Date ? req.firstByteDate.getTime() : new Date(req.firstByteDate).getTime();
+        }
+
+        if (req?.endDate) {
+          endTime = req.endDate instanceof Date ? req.endDate.getTime() : new Date(req.endDate).getTime();
+        }
+        // Fallback: requestEndDate (dash.js v3/v4 legacy)
+        if (!endTime && req?.requestEndDate) {
           endTime = new Date(req.requestEndDate).getTime();
-        } else {
+        }
+        // Fallback cuoi cung: thoi diem hien tai
+        if (!endTime) {
           endTime = Date.now();
         }
-        const durationMs = startTime > 0 && endTime > startTime ? endTime - startTime : 0;
+
+        let durationMs = startTime > 0 && endTime > startTime ? endTime - startTime : 0;
+
+        // 2) Fallback: tinh tu trace array cua dash.js (mang cac doan download)
+        if (durationMs === 0 && Array.isArray(req?.trace) && req.trace.length > 0) {
+          let traceDuration = 0;
+          for (const t of req.trace) {
+            traceDuration += (t.d ?? t.duration ?? 0);
+          }
+          if (traceDuration > 0) durationMs = traceDuration;
+        }
+
+        // 3) Fallback: Performance Resource Timing API
+        if (durationMs === 0 && req?.url) {
+          try {
+            const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+            for (let i = entries.length - 1; i >= 0; i--) {
+              if (entries[i].name.includes(req.url) || req.url.includes(entries[i].name)) {
+                const perfDuration = entries[i].responseEnd - entries[i].requestStart;
+                if (perfDuration > 0) {
+                  durationMs = Math.round(perfDuration);
+                  break;
+                }
+              }
+            }
+          } catch { /* Performance API khong kha dung */ }
+        }
 
         // === DEBUG: Log ra console de kiem tra xem co data khong ===
-        // (Co the bo sau khi debug xong)
         if ((import.meta as any).env?.DEV) {
           console.debug("[FRAGMENT]", {
             bytesLoaded,
             durationMs,
-            startDate: req?.requestStartDate,
-            endDate: req?.requestEndDate,
+            startDate: req?.startDate,
+            endDate: req?.endDate,
+            firstByteDate: req?.firstByteDate,
+            legacyStartDate: req?.requestStartDate,
+            legacyEndDate: req?.requestEndDate,
+            trace: req?.trace,
             reqKeys: req ? Object.keys(req) : [],
           });
         }
@@ -377,10 +428,21 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
           }
           if (durationMs > 0) prevLatencyMsRef.current = durationMs;
 
-          // Uoc tinh RTT = thoi gian nhan byte dau tien (xap xi 2x one-way)
-          const rttMs = durationMs > 0 && bytesLoaded > 0
-            ? Math.round(Math.min(durationMs, durationMs * 1024 / bytesLoaded * 2))
-            : 0;
+          // Uoc tinh RTT tu firstByteDate hoac xap xi tu download time
+          let rttMs = 0;
+          if (req?.firstByteDate && startTime > 0) {
+            const firstByteTime = req.firstByteDate instanceof Date
+              ? req.firstByteDate.getTime()
+              : new Date(req.firstByteDate).getTime();
+            if (firstByteTime > startTime) {
+              rttMs = Math.round(firstByteTime - startTime);
+            }
+          }
+          // Fallback: neu khong co firstByteDate, uoc tinh RTT dua tren download time
+          if (rttMs === 0 && durationMs > 0 && bytesLoaded > 0) {
+            // Phan thoi gian khong phai truyen data ~ RTT
+            rttMs = Math.round(Math.min(durationMs * 0.1, durationMs * 1024 / bytesLoaded * 2));
+          }
 
           // Tich luy tong bytes da tai
           totalDownloadedBytesRef.current += bytesLoaded;
