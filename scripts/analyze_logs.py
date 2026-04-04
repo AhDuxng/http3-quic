@@ -1,23 +1,27 @@
 """
 analyze_logs.py
 ---------------
-Phân tích & so sánh 2 file CSV log từ hệ thống ADTube:
-  - File H2 (HTTP/2)
-  - File H3 (HTTP/3 / QUIC)
+Analyze & compare two CSV log files from ADTube streaming system:
+  - File H2 (HTTP/2 over TCP)
+  - File H3 (HTTP/3 over QUIC)
 
-Tự động phát hiện tất cả cột có trong CSV, phân loại đúng kiểu dữ liệu
-(tức thời / tích lũy / phân loại), và áp dụng phương pháp thống kê phù hợp.
+All metric names follow adaptive streaming QoE academic conventions
+(IEEE, ACM, arXiv literature on DASH/HLS streaming quality).
 
-Cách dùng:
-  GUI (khuyến nghị) – chạy không có argument:
+Automatically detects all CSV columns, classifies data types
+(instantaneous / cumulative / categorical), and applies appropriate
+statistical methods.
+
+Usage:
+  GUI (recommended) – run without arguments:
     python analyze_logs.py
-    → Hộp thoại chọn file hiện ra, sau khi vẽ xong tự mở thư mục output.
+    → File dialog appears, then output folder opens automatically.
 
   CLI:
     python analyze_logs.py <h2_csv> <h3_csv> [--out <output_dir>]
 
-Yêu cầu:
-    pip install pandas matplotlib seaborn numpy
+Requirements:
+    pip install pandas matplotlib seaborn numpy scipy
 """
 
 import argparse
@@ -42,40 +46,36 @@ import seaborn as sns
 warnings.filterwarnings("ignore")
 
 # ═══════════════════════════════════════════════════════════════════════
-#  ĐỊNH NGHĨA CỘT CSV & METADATA
+#  CSV COLUMN DEFINITIONS & METADATA
 # ═══════════════════════════════════════════════════════════════════════
-
-# Mỗi cột số có metadata:
-#   agg    : "mean" (tức thời) hoặc "last" (tích lũy)
-#   label  : nhãn hiển thị
-#   unit   : đơn vị
-#   hint   : gợi ý cao/thấp tốt hơn ("lower" | "higher" | "info")
-#   group  : nhóm phân tích ("network" | "quality" | "playback" | "extra")
+#
+# Each numeric column has metadata:
+#   agg    : "mean" (instantaneous) or "last" (cumulative)
+#   label  : display label (English, academic standard)
+#   unit   : measurement unit
+#   hint   : lower/higher is better ("lower" | "higher" | "info")
+#   group  : analysis group ("network" | "quality" | "playback" | "extra")
 
 METRIC_META = {
-    # ── Nhóm mạng ──
-    "Latency_ms": {
-        "agg": "mean", "label": "Latency", "unit": "ms",
+    # ── Network Metrics ──
+    "TTFB_ms": {
+        "agg": "mean", "label": "Time To First Byte (TTFB)", "unit": "ms",
         "hint": "lower", "group": "network",
     },
     "Jitter_ms": {
-        "agg": "mean", "label": "Jitter", "unit": "ms",
-        "hint": "lower", "group": "network",
-    },
-    "RTT_ms": {
-        "agg": "mean", "label": "RTT", "unit": "ms",
+        "agg": "mean", "label": "SDT Jitter", "unit": "ms",
         "hint": "lower", "group": "network",
     },
     "DownloadSpeed_kbps": {
-        "agg": "mean", "label": "Download Speed", "unit": "kbps",
+        "agg": "mean", "label": "Segment Download Speed", "unit": "kbps",
         "hint": "higher", "group": "network",
     },
     "Throughput_kbps": {
         "agg": "mean", "label": "Throughput", "unit": "kbps",
         "hint": "higher", "group": "network",
     },
-    "SegmentDuration_ms": {
-        "agg": "mean", "label": "Segment Duration", "unit": "ms",
+    "SegmentDownloadTime_ms": {
+        "agg": "mean", "label": "Segment Download Time (SDT)", "unit": "ms",
         "hint": "lower", "group": "network",
     },
     "SegmentSize_KB": {
@@ -83,21 +83,21 @@ METRIC_META = {
         "hint": "info", "group": "network",
     },
     "EstimatedBandwidth_Mbps": {
-        "agg": "mean", "label": "Est. Bandwidth", "unit": "Mbps",
+        "agg": "mean", "label": "Estimated Bandwidth", "unit": "Mbps",
         "hint": "higher", "group": "network",
     },
 
-    # ── Nhóm chất lượng phát ──
+    # ── Video Quality Metrics ──
     "Bitrate_kbps": {
-        "agg": "mean", "label": "Bitrate", "unit": "kbps",
+        "agg": "mean", "label": "Video Bitrate", "unit": "kbps",
         "hint": "higher", "group": "quality",
     },
     "Buffer_s": {
-        "agg": "mean", "label": "Buffer Length", "unit": "s",
+        "agg": "mean", "label": "Buffer Occupancy", "unit": "s",
         "hint": "higher", "group": "quality",
     },
     "FPS": {
-        "agg": "mean", "label": "FPS", "unit": "fps",
+        "agg": "mean", "label": "Frame Rate", "unit": "fps",
         "hint": "higher", "group": "quality",
     },
     "QualityIndex": {
@@ -105,7 +105,7 @@ METRIC_META = {
         "hint": "higher", "group": "quality",
     },
 
-    # ── Nhóm playback / ổn định ──
+    # ── Playback Stability Metrics ──
     "DroppedFrames": {
         "agg": "last", "label": "Dropped Frames", "unit": "frames",
         "hint": "lower", "group": "playback",
@@ -114,16 +114,28 @@ METRIC_META = {
         "agg": "last", "label": "Total Frames", "unit": "frames",
         "hint": "info", "group": "playback",
     },
+    "StallCount": {
+        "agg": "last", "label": "Stall Count", "unit": "events",
+        "hint": "lower", "group": "playback",
+    },
+    "StallDuration_ms": {
+        "agg": "last", "label": "Total Stall Duration", "unit": "ms",
+        "hint": "lower", "group": "playback",
+    },
     "RebufferCount": {
-        "agg": "last", "label": "Rebuffer Count", "unit": "lần",
+        "agg": "last", "label": "Rebuffer Count", "unit": "events",
         "hint": "lower", "group": "playback",
     },
     "RebufferDuration_ms": {
-        "agg": "last", "label": "Rebuffer Duration", "unit": "ms",
+        "agg": "last", "label": "Total Rebuffer Duration", "unit": "ms",
+        "hint": "lower", "group": "playback",
+    },
+    "RebufferingRatio": {
+        "agg": "last", "label": "Rebuffering Ratio", "unit": "",
         "hint": "lower", "group": "playback",
     },
     "QualitySwitchCount": {
-        "agg": "last", "label": "Quality Switches", "unit": "lần",
+        "agg": "last", "label": "Quality Switch Count", "unit": "events",
         "hint": "lower", "group": "playback",
     },
     "TotalDownloaded_MB": {
@@ -131,7 +143,7 @@ METRIC_META = {
         "hint": "info", "group": "playback",
     },
 
-    # ── Nhóm phụ / ngữ cảnh ──
+    # ── Context / Extra ──
     "CurrentTime_s": {
         "agg": "last", "label": "Playback Position", "unit": "s",
         "hint": "info", "group": "extra",
@@ -146,16 +158,23 @@ METRIC_META = {
     },
 }
 
-# Cột phân loại (categorical/text)
+# Backward compatibility: map old CSV column names to new names
+COLUMN_RENAME_MAP = {
+    "Latency_ms": None,              # DROP — redundant with SegmentDownloadTime_ms
+    "RTT_ms": "TTFB_ms",             # Was TTFB all along, rename
+    "SegmentDuration_ms": "SegmentDownloadTime_ms",  # Academic name
+}
+
+# Categorical/text columns
 CATEGORICAL_COLS = [
     "Level", "Protocol", "ConnectionType", "Resolution",
     "Codec", "ActiveScenario", "IsAutoQuality",
 ]
 
-# Tất cả cột số
+# All numeric columns
 ALL_NUMERIC_COLS = list(METRIC_META.keys())
 
-# Cột tích lũy
+# Cumulative columns (use last value, not mean)
 CUMULATIVE_COLS = {k for k, v in METRIC_META.items() if v["agg"] == "last"}
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -163,8 +182,8 @@ CUMULATIVE_COLS = {k for k, v in METRIC_META.items() if v["agg"] == "last"}
 # ═══════════════════════════════════════════════════════════════════════
 
 PALETTE = {
-    "H2": "#4C9BE8",   # xanh dương – HTTP/2
-    "H3": "#F5A623",   # cam vàng   – HTTP/3 QUIC
+    "H2": "#4C9BE8",   # blue  – HTTP/2
+    "H3": "#F5A623",   # amber – HTTP/3 QUIC
 }
 
 BG_COLOR   = "#0F1117"
@@ -197,7 +216,7 @@ plt.rcParams.update({
 # ═══════════════════════════════════════════════════════════════════════
 
 def _get_value(series: pd.Series, col: str) -> float:
-    """Giá trị đại diện: last cho tích lũy, mean cho tức thời."""
+    """Representative value: last for cumulative, mean for instantaneous."""
     s = series.dropna()
     if s.empty:
         return float("nan")
@@ -208,12 +227,12 @@ def _get_value(series: pd.Series, col: str) -> float:
 
 
 def _hint_label(col: str) -> str:
-    """Trả về chuỗi gợi ý 'Thấp = tốt' / 'Cao = tốt' / 'Info'."""
+    """Return hint string 'Lower is better' / 'Higher is better' / 'Info'."""
     meta = METRIC_META.get(col, {})
     h = meta.get("hint", "info")
-    return {"lower": "Thấp hơn = tốt hơn",
-            "higher": "Cao hơn = tốt hơn",
-            "info": "Thông tin"}.get(h, "")
+    return {"lower": "Lower is better",
+            "higher": "Higher is better",
+            "info": "Informational"}.get(h, "")
 
 
 def _fmt_val(v: float, precision: int = 2) -> str:
@@ -225,7 +244,7 @@ def _fmt_val(v: float, precision: int = 2) -> str:
 
 
 def _add_bar_labels(ax, bars, fmt="{:.1f}"):
-    """Thêm nhãn giá trị lên mỗi cột bar."""
+    """Add value labels on top of each bar."""
     for bar in bars:
         h = bar.get_height()
         if pd.isna(h) or h == 0:
@@ -252,7 +271,7 @@ def _style_ax(ax, title: str, xlabel: str = "", ylabel: str = ""):
 
 
 def _hide_unused(axes, used: int, total: int):
-    """Ẩn các subplot không sử dụng."""
+    """Hide unused subplot axes."""
     for i in range(used, total):
         axes[i].set_visible(False)
 
@@ -267,31 +286,42 @@ def _save_fig(fig, out_dir: str, name: str):
 
 def _available_cols(h2: pd.DataFrame, h3: pd.DataFrame,
                     cols: List[str]) -> List[str]:
-    """Trả về danh sách cột có trong cả 2 DataFrame."""
+    """Return list of columns present in both DataFrames."""
     return [c for c in cols if c in h2.columns and c in h3.columns]
 
 
 def _cols_by_group(h2: pd.DataFrame, h3: pd.DataFrame,
                    group: str) -> List[str]:
-    """Lấy các cột thuộc group nhất định có trong cả 2 df."""
+    """Get columns belonging to a specific group, present in both dfs."""
     candidates = [k for k, v in METRIC_META.items() if v["group"] == group]
     return _available_cols(h2, h3, candidates)
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  ĐỌC & LÀM SẠCH CSV
+#  READ & CLEAN CSV
 # ═══════════════════════════════════════════════════════════════════════
 
 def load_csv(path: str, label: str) -> pd.DataFrame:
-    """Đọc CSV log (UTF-8 BOM), ép kiểu số cho các cột metric."""
+    """Read CSV log (UTF-8 BOM), coerce numeric columns, apply renames."""
     if not os.path.isfile(path):
-        print(f"[ERROR] Không tìm thấy file: {path}")
+        print(f"[ERROR] File not found: {path}")
         sys.exit(1)
 
     df = pd.read_csv(path, encoding="utf-8-sig")
     df.columns = [c.strip() for c in df.columns]
 
-    # Ép kiểu số
+    # Apply backward-compatible column renames
+    for old_name, new_name in COLUMN_RENAME_MAP.items():
+        if old_name in df.columns:
+            if new_name is None:
+                # DROP the column
+                df = df.drop(columns=[old_name])
+                print(f"  ⚠  Dropped legacy column: {old_name}")
+            elif new_name not in df.columns:
+                df = df.rename(columns={old_name: new_name})
+                print(f"  ↦  Renamed column: {old_name} → {new_name}")
+
+    # Coerce numeric types
     for col in ALL_NUMERIC_COLS:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -301,13 +331,13 @@ def load_csv(path: str, label: str) -> pd.DataFrame:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  THỐNG KÊ TỔNG HỢP
+#  SUMMARY STATISTICS
 # ═══════════════════════════════════════════════════════════════════════
 
 def compute_summary(h2: pd.DataFrame, h3: pd.DataFrame) -> pd.DataFrame:
     """
-    Tạo bảng thống kê so sánh H2 vs H3 cho tất cả metric số.
-    Cột: Metric | Group | Agg | Unit | H2 | H3 | Δ | Δ% | Verdict
+    Create comparison statistics table H2 vs H3 for all numeric metrics.
+    Columns: Metric | Group | Agg | Unit | H2 | H3 | Δ | Δ% | Verdict
     """
     available = _available_cols(h2, h3, ALL_NUMERIC_COLS)
     rows = []
@@ -321,7 +351,7 @@ def compute_summary(h2: pd.DataFrame, h3: pd.DataFrame) -> pd.DataFrame:
         delta = h3_val - h2_val
         pct = (delta / h2_val * 100) if h2_val and not pd.isna(h2_val) else float("nan")
 
-        # Verdict: H3 tốt hơn / H2 tốt hơn / bằng nhau
+        # Verdict: H3 better / H2 better / equal
         verdict = "="
         if not pd.isna(delta) and delta != 0:
             if meta["hint"] == "lower":
@@ -350,31 +380,29 @@ def compute_summary(h2: pd.DataFrame, h3: pd.DataFrame) -> pd.DataFrame:
 
 def print_summary(h2: pd.DataFrame, h3: pd.DataFrame,
                   summary_df: pd.DataFrame):
-    """In bảng thống kê ra console."""
+    """Print summary statistics to console."""
     print(f"\n{'═' * 80}")
-    print("  THỐNG KÊ TỔNG QUAN  │  ADTube Log Analyzer")
+    print("  SUMMARY STATISTICS  │  ADTube Log Analyzer")
     print(f"{'═' * 80}")
-    print(f"  HTTP/2  → {len(h2):>6,} dòng log")
-    print(f"  HTTP/3  → {len(h3):>6,} dòng log")
+    print(f"  HTTP/2  → {len(h2):>6,} log entries")
+    print(f"  HTTP/3  → {len(h3):>6,} log entries")
     print(f"{'═' * 80}")
 
     if summary_df.empty:
-        print("  (Không có dữ liệu số chung)")
+        print("  (No shared numeric data)")
         return
 
-    # In bảng gọn
     display = summary_df[["Metric", "Agg", "Unit", "H2", "H3",
                           "Δ (H3−H2)", "Δ%", "Verdict"]].copy()
     print(display.to_string(index=False))
     print(f"{'═' * 80}\n")
 
-    # Đếm verdict
     h3_wins = (summary_df["Verdict"] == "H3 ✓").sum()
     h2_wins = (summary_df["Verdict"] == "H2 ✓").sum()
     ties = len(summary_df) - h3_wins - h2_wins
-    print(f"  Kết quả: H3 tốt hơn ở {h3_wins} chỉ số, "
-          f"H2 tốt hơn ở {h2_wins} chỉ số, "
-          f"bằng/info ở {ties} chỉ số.\n")
+    print(f"  Result: H3 wins on {h3_wins} metrics, "
+          f"H2 wins on {h2_wins} metrics, "
+          f"ties/info on {ties} metrics.\n")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -382,7 +410,7 @@ def print_summary(h2: pd.DataFrame, h3: pd.DataFrame,
 # ═══════════════════════════════════════════════════════════════════════
 
 def compute_descriptive(df: pd.DataFrame, label: str) -> pd.DataFrame:
-    """Thống kê mô tả cho một DataFrame."""
+    """Descriptive statistics for a DataFrame."""
     available = [c for c in ALL_NUMERIC_COLS if c in df.columns]
     if not available:
         return pd.DataFrame()
@@ -393,7 +421,6 @@ def compute_descriptive(df: pd.DataFrame, label: str) -> pd.DataFrame:
     result.index.name = "Metric"
     result["Protocol"] = label
 
-    # Thêm agg type
     result["Agg"] = result.index.map(
         lambda x: METRIC_META.get(x, {}).get("agg", "mean")
     )
@@ -401,7 +428,7 @@ def compute_descriptive(df: pd.DataFrame, label: str) -> pd.DataFrame:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CHART 1: Chỉ số mạng (bar chart)
+#  CHART 1: Network Metrics (bar chart)
 # ═══════════════════════════════════════════════════════════════════════
 
 def chart_network_bars(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
@@ -414,7 +441,7 @@ def chart_network_bars(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
     nrows = math.ceil(n / ncols)
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 5 * nrows))
-    fig.suptitle("Chỉ Số Mạng  │  HTTP/2 vs HTTP/3 (QUIC)",
+    fig.suptitle("Network Metrics  │  HTTP/2 vs HTTP/3 (QUIC)",
                  fontsize=15, fontweight="bold", color=TEXT_COLOR, y=1.02)
     axes = np.atleast_1d(axes).flatten()
 
@@ -434,7 +461,7 @@ def chart_network_bars(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
                   f"{meta['label']} ({meta['unit']})\n({_hint_label(col)})",
                   ylabel=f"{meta['label']} ({meta['unit']})")
 
-        # Thêm thông tin phụ bên dưới
+        # Sub-info
         agg_label = meta["agg"]
         h2s = h2[col].dropna()
         h3s = h3[col].dropna()
@@ -453,7 +480,7 @@ def chart_network_bars(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CHART 2: Chất lượng phát video (bar chart)
+#  CHART 2: Video Quality Metrics (bar chart)
 # ═══════════════════════════════════════════════════════════════════════
 
 def chart_quality_bars(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
@@ -466,7 +493,7 @@ def chart_quality_bars(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
     nrows = math.ceil(n / ncols)
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 5 * nrows))
-    fig.suptitle("Chất Lượng Phát Video  │  HTTP/2 vs HTTP/3 (QUIC)",
+    fig.suptitle("Video Quality Metrics  │  HTTP/2 vs HTTP/3 (QUIC)",
                  fontsize=15, fontweight="bold", color=TEXT_COLOR, y=1.02)
     axes = np.atleast_1d(axes).flatten()
 
@@ -492,11 +519,11 @@ def chart_quality_bars(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CHART 3: Phân phối dữ liệu (violin plot)
+#  CHART 3: Distribution (violin plot)
 # ═══════════════════════════════════════════════════════════════════════
 
 def chart_distribution(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
-    # Chọn các cột tức thời (không tích lũy) có ý nghĩa phân phối
+    # Select instantaneous cols with meaningful distribution
     candidates = [c for c in ALL_NUMERIC_COLS
                   if METRIC_META[c]["agg"] == "mean"
                   and METRIC_META[c]["group"] in ("network", "quality")]
@@ -509,7 +536,7 @@ def chart_distribution(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
     nrows = math.ceil(n / ncols)
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 5 * nrows))
-    fig.suptitle("Phân Phối Dữ Liệu  │  HTTP/2 vs HTTP/3 (QUIC)",
+    fig.suptitle("Data Distribution  │  HTTP/2 vs HTTP/3 (QUIC)",
                  fontsize=15, fontweight="bold", color=TEXT_COLOR, y=1.02)
     axes = np.atleast_1d(axes).flatten()
 
@@ -540,19 +567,20 @@ def chart_distribution(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CHART 4: Timeline (biến thiên theo thứ tự log)
+#  CHART 4: Timeline (variation over log index)
 # ═══════════════════════════════════════════════════════════════════════
 
 def chart_timeline(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
-    key_cols = ["Latency_ms", "Buffer_s", "Bitrate_kbps",
-                "DownloadSpeed_kbps", "Throughput_kbps"]
+    key_cols = ["TTFB_ms", "Buffer_s", "Bitrate_kbps",
+                "DownloadSpeed_kbps", "Throughput_kbps",
+                "SegmentDownloadTime_ms"]
     cols = _available_cols(h2, h3, key_cols)
     if not cols:
         return
 
     n = len(cols)
     fig, axes = plt.subplots(n, 1, figsize=(18, 4 * n))
-    fig.suptitle("Timeline Theo Thứ Tự Log  │  HTTP/2 vs HTTP/3 (QUIC)",
+    fig.suptitle("Timeline by Log Index  │  HTTP/2 vs HTTP/3 (QUIC)",
                  fontsize=15, fontweight="bold", color=TEXT_COLOR, y=1.01)
     if n == 1:
         axes = [axes]
@@ -587,44 +615,44 @@ def chart_timeline(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CHART 5: Radar chart (tổng quan đa chiều)
+#  CHART 5: Radar chart (multi-dimensional overview)
 # ═══════════════════════════════════════════════════════════════════════
 
 def chart_radar(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
-    # Chọn 6-8 chỉ số chính
+    # Select 6-8 key metrics — invert = True means lower is better
     candidates = [
         ("DownloadSpeed_kbps", False),
         ("Bitrate_kbps",       False),
         ("Buffer_s",           False),
         ("FPS",                False),
         ("Throughput_kbps",    False),
-        ("Latency_ms",         True),   # invert: thấp = tốt
+        ("TTFB_ms",            True),   # invert: lower = better
         ("Jitter_ms",          True),
-        ("RTT_ms",             True),
+        ("SegmentDownloadTime_ms", True),
     ]
     available = [(col, inv) for col, inv in candidates
                  if col in h2.columns and col in h3.columns]
     if len(available) < 3:
-        print("  ⚠  Không đủ dữ liệu để vẽ radar chart.")
+        print("  ⚠  Not enough data for radar chart.")
         return
 
     labels = [METRIC_META[col]["label"] for col, _ in available]
     h2_vals = np.array([_get_value(h2[col], col) for col, _ in available])
     h3_vals = np.array([_get_value(h3[col], col) for col, _ in available])
 
-    # Chuẩn hóa
+    # Normalize
     combined_max = np.maximum(h2_vals, h3_vals)
     combined_max[combined_max == 0] = 1
     h2_norm = h2_vals / combined_max
     h3_norm = h3_vals / combined_max
 
-    # Invert
+    # Invert: lower is better → higher normalized = better
     for i, (_, inv) in enumerate(available):
         if inv:
             h2_norm[i] = 1 - h2_norm[i]
             h3_norm[i] = 1 - h3_norm[i]
 
-    # Đóng vòng
+    # Close the loop
     n = len(labels)
     angles = np.linspace(0, 2 * np.pi, n, endpoint=False).tolist()
     angles += angles[:1]
@@ -644,13 +672,13 @@ def chart_radar(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
     ax.set_yticklabels(["25%", "50%", "75%", "100%"],
                        fontsize=7, color=MUTED_TEXT)
     ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(labels, fontsize=10, color=TEXT_COLOR)
+    ax.set_xticklabels(labels, fontsize=9, color=TEXT_COLOR)
     ax.yaxis.grid(True, color=GRID_COLOR, linestyle="--", alpha=0.5)
     ax.xaxis.grid(True, color=GRID_COLOR, linestyle="--", alpha=0.5)
     ax.spines["polar"].set_color(GRID_COLOR)
 
-    ax.set_title("Radar Chart – Hiệu Năng Tổng Quan\n"
-                 "(cạnh ngoài = tốt hơn)",
+    ax.set_title("Radar Chart – Overall Performance\n"
+                 "(outer edge = better)",
                  fontsize=13, fontweight="bold", color=TEXT_COLOR, pad=20)
     ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1.15), fontsize=10)
 
@@ -659,7 +687,7 @@ def chart_radar(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CHART 6: Bảng tổng hợp so sánh (render hình ảnh)
+#  CHART 6: Summary comparison table (rendered as image)
 # ═══════════════════════════════════════════════════════════════════════
 
 def chart_summary_table(summary_df: pd.DataFrame, out_dir: str):
@@ -705,20 +733,20 @@ def chart_summary_table(summary_df: pd.DataFrame, out_dir: str):
             cell.set_text_props(color=TEXT_COLOR)
             cell.set_edgecolor(GRID_COLOR)
 
-            # Tô màu cột Verdict
+            # Color Verdict column
             if col_idx == 7:
                 if "H3" in verdict_str:
                     cell.set_text_props(color=PALETTE["H3"], fontweight="bold")
                 elif "H2" in verdict_str:
                     cell.set_text_props(color=PALETTE["H2"], fontweight="bold")
-            # Tô màu cột Δ%
+            # Color Δ% column
             if col_idx == 6:
                 if "▲" in delta_pct_str:
                     cell.set_text_props(color=PALETTE["H3"])
                 elif "▼" in delta_pct_str:
                     cell.set_text_props(color=PALETTE["H2"])
 
-    ax.set_title("Bảng Tổng Hợp So Sánh  │  HTTP/2 vs HTTP/3",
+    ax.set_title("Summary Comparison Table  │  HTTP/2 vs HTTP/3",
                  fontsize=14, fontweight="bold", color=TEXT_COLOR,
                  pad=12, loc="left")
 
@@ -727,7 +755,7 @@ def chart_summary_table(summary_df: pd.DataFrame, out_dir: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CHART 7: Phân bố Level log
+#  CHART 7: Log level distribution
 # ═══════════════════════════════════════════════════════════════════════
 
 def chart_level_dist(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
@@ -753,8 +781,8 @@ def chart_level_dist(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 
     ax.set_xticks(x)
     ax.set_xticklabels(levels, fontsize=11)
-    _style_ax(ax, "Phân Bố Level Log  │  HTTP/2 vs HTTP/3",
-              xlabel="Log Level", ylabel="Số dòng log")
+    _style_ax(ax, "Log Level Distribution  │  HTTP/2 vs HTTP/3",
+              xlabel="Log Level", ylabel="Number of log entries")
     ax.legend(fontsize=10)
 
     fig.tight_layout()
@@ -762,7 +790,7 @@ def chart_level_dist(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CHART 8: Độ ổn định playback (Rebuffer / Quality Switch / Downloaded)
+#  CHART 8: Playback Stability (Stall / Rebuffer / Quality Switch)
 # ═══════════════════════════════════════════════════════════════════════
 
 def chart_stability(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
@@ -770,13 +798,13 @@ def chart_stability(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
     if not cols:
         return
 
-    n = min(len(cols), 6)
+    n = min(len(cols), 9)
     ncols = min(n, 3)
     nrows = math.ceil(n / ncols)
 
     fig, axes = plt.subplots(nrows, ncols,
                              figsize=(5.5 * ncols, 5 * nrows))
-    fig.suptitle("Độ Ổn Định Playback & Tổng Lượng Tải  │  HTTP/2 vs HTTP/3",
+    fig.suptitle("Playback Stability & Stalling Analysis  │  HTTP/2 vs HTTP/3",
                  fontsize=14, fontweight="bold", color=TEXT_COLOR, y=1.02)
     axes = np.atleast_1d(axes).flatten()
 
@@ -802,12 +830,11 @@ def chart_stability(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CHART 9: Phân tích cột phân loại (categorical)
+#  CHART 9: Categorical column analysis
 # ═══════════════════════════════════════════════════════════════════════
 
 def chart_categorical(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
     cats = _available_cols(h2, h3, CATEGORICAL_COLS)
-    # Bỏ cột Level (đã vẽ riêng ở chart 7)
     cats = [c for c in cats if c != "Level"]
     if not cats:
         return
@@ -818,7 +845,7 @@ def chart_categorical(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 
     fig, axes = plt.subplots(nrows, ncols * 2,
                              figsize=(ncols * 9, nrows * 4.5))
-    fig.suptitle("Phân Tích Cột Phân Loại  │  HTTP/2 vs HTTP/3",
+    fig.suptitle("Categorical Column Analysis  │  HTTP/2 vs HTTP/3",
                  fontsize=14, fontweight="bold", color=TEXT_COLOR, y=1.02)
     axes = np.atleast_1d(axes).flatten()
 
@@ -847,7 +874,7 @@ def chart_categorical(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
                         color=TEXT_COLOR)
             ax.set_title(f"{col}  [{proto}]", fontsize=9,
                          fontweight="bold", color=TEXT_COLOR)
-            ax.set_xlabel("Số dòng log", fontsize=8)
+            ax.set_xlabel("Log entries", fontsize=8)
             ax.yaxis.grid(False)
             ax.xaxis.grid(True)
             ax.set_axisbelow(True)
@@ -860,7 +887,7 @@ def chart_categorical(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CHART 10: Chỉ số phụ / Extra metrics
+#  CHART 10: Extra / Context Metrics
 # ═══════════════════════════════════════════════════════════════════════
 
 def chart_extra_metrics(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
@@ -873,7 +900,7 @@ def chart_extra_metrics(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
     nrows = math.ceil(n / ncols)
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 5 * nrows))
-    fig.suptitle("Các Chỉ Số Bổ Sung  │  HTTP/2 vs HTTP/3",
+    fig.suptitle("Supplementary Metrics  │  HTTP/2 vs HTTP/3",
                  fontsize=14, fontweight="bold", color=TEXT_COLOR, y=1.02)
     axes = np.atleast_1d(axes).flatten()
 
@@ -899,6 +926,75 @@ def chart_extra_metrics(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  CHART 11: Stalling Analysis (NEW - critical for Q1 paper)
+# ═══════════════════════════════════════════════════════════════════════
+
+def chart_stalling_analysis(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
+    """Dedicated stalling & rebuffering analysis chart for academic research."""
+    stall_metrics = [
+        "StallCount", "StallDuration_ms",
+        "RebufferCount", "RebufferDuration_ms",
+        "RebufferingRatio",
+    ]
+    cols = _available_cols(h2, h3, stall_metrics)
+    if not cols:
+        return
+
+    n = len(cols)
+    ncols = min(n, 3)
+    nrows = math.ceil(n / ncols)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 5.5 * nrows))
+    fig.suptitle("Stalling & Rebuffering Analysis  │  HTTP/2 vs HTTP/3 (QUIC)\n"
+                 "Key QoE indicators for adaptive streaming research",
+                 fontsize=14, fontweight="bold", color=TEXT_COLOR, y=1.04)
+    axes = np.atleast_1d(axes).flatten()
+
+    for idx, col in enumerate(cols[:n]):
+        ax = axes[idx]
+        meta = METRIC_META[col]
+        h2_v = _get_value(h2[col], col)
+        h3_v = _get_value(h3[col], col)
+
+        bars = ax.bar(
+            ["HTTP/2", "HTTP/3"], [h2_v, h3_v],
+            color=[PALETTE["H2"], PALETTE["H3"]],
+            width=0.45, edgecolor=GRID_COLOR, lw=0.8,
+        )
+
+        # Format: special handling for ratio
+        if col == "RebufferingRatio":
+            fmt = "{:.4f}"
+        elif "Duration" in col:
+            fmt = "{:.0f}"
+        else:
+            fmt = "{:.0f}"
+        _add_bar_labels(ax, bars, fmt=fmt)
+
+        title_label = meta["label"]
+        if col == "RebufferingRatio":
+            title_label += "\n(stall_duration / playback_duration)"
+
+        _style_ax(ax, f"{title_label}\n({_hint_label(col)})",
+                  ylabel=f"{meta['label']} ({meta['unit']})")
+
+        # Highlight: add percentage difference annotation
+        if h2_v > 0 and not pd.isna(h2_v) and not pd.isna(h3_v):
+            pct_diff = ((h3_v - h2_v) / h2_v) * 100
+            color = ACCENT_GREEN if pct_diff < 0 else ACCENT_RED
+            sign = "+" if pct_diff > 0 else ""
+            ax.text(0.5, 0.92, f"Δ = {sign}{pct_diff:.1f}%",
+                    transform=ax.transAxes, ha="center",
+                    fontsize=10, fontweight="bold", color=color,
+                    bbox=dict(boxstyle="round,pad=0.3",
+                              facecolor=CARD_BG, edgecolor=color, alpha=0.9))
+
+    _hide_unused(axes, n, len(axes))
+    fig.tight_layout()
+    _save_fig(fig, out_dir, "11_stalling_analysis.png")
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  EXPORT CSV SUMMARY
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -906,7 +1002,7 @@ def export_summary_csv(summary_df: pd.DataFrame,
                        desc_h2: pd.DataFrame,
                        desc_h3: pd.DataFrame,
                        out_dir: str):
-    """Xuất bảng thống kê ra file CSV."""
+    """Export summary statistics to CSV files."""
     if not summary_df.empty:
         path = os.path.join(out_dir, "summary_comparison.csv")
         summary_df.to_csv(path, index=False, encoding="utf-8-sig")
@@ -924,7 +1020,7 @@ def export_summary_csv(summary_df: pd.DataFrame,
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  MỞ THƯ MỤC OUTPUT
+#  OPEN OUTPUT FOLDER
 # ═══════════════════════════════════════════════════════════════════════
 
 def open_folder(path: str):
@@ -938,20 +1034,20 @@ def open_folder(path: str):
         else:
             subprocess.Popen(["xdg-open", abs_path])
     except Exception as e:
-        print(f"  ⚠  Không thể mở thư mục tự động: {e}")
+        print(f"  ⚠  Could not open folder automatically: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  LÕI XỬ LÝ CHÍNH
+#  MAIN ANALYSIS PIPELINE
 # ═══════════════════════════════════════════════════════════════════════
 
 def run_analysis(h2_path: str, h3_path: str, out_dir: str,
                  progress_cb: Optional[Callable] = None) -> str:
     """
-    Chạy toàn bộ pipeline phân tích.
-    progress_cb(step, total, msg) – callback cập nhật tiến trình.
+    Run the full analysis pipeline.
+    progress_cb(step, total, msg) – progress callback.
     """
-    TOTAL = 14
+    TOTAL = 15
 
     def _progress(step: int, msg: str):
         if progress_cb:
@@ -962,48 +1058,49 @@ def run_analysis(h2_path: str, h3_path: str, out_dir: str,
 
     os.makedirs(out_dir, exist_ok=True)
 
-    # 0. Đọc file
-    _progress(0, "Đọc file CSV …")
+    # 0. Read files
+    _progress(0, "Reading CSV files…")
     h2 = load_csv(h2_path, "HTTP/2")
     h3 = load_csv(h3_path, "HTTP/3")
 
-    # 1. Thống kê tổng quan
-    _progress(1, "Tính thống kê tổng quan …")
+    # 1. Summary statistics
+    _progress(1, "Computing summary statistics…")
     summary_df = compute_summary(h2, h3)
     print_summary(h2, h3, summary_df)
 
-    # 2. Thống kê mô tả
-    _progress(2, "Tính thống kê mô tả …")
+    # 2. Descriptive statistics
+    _progress(2, "Computing descriptive statistics…")
     desc_h2 = compute_descriptive(h2, "HTTP/2")
     desc_h3 = compute_descriptive(h3, "HTTP/3")
 
-    # 3-12. Vẽ biểu đồ
+    # 3-13. Generate charts
     chart_steps = [
-        (chart_network_bars,   "Vẽ: Chỉ số mạng"),
-        (chart_quality_bars,   "Vẽ: Chất lượng phát"),
-        (chart_distribution,   "Vẽ: Phân phối violin"),
-        (chart_timeline,       "Vẽ: Timeline"),
-        (chart_radar,          "Vẽ: Radar chart"),
-        (chart_summary_table,  None),  # xử lý riêng
-        (chart_level_dist,     "Vẽ: Phân bố Level log"),
-        (chart_stability,      "Vẽ: Ổn định playback"),
-        (chart_categorical,    "Vẽ: Cột phân loại"),
-        (chart_extra_metrics,  "Vẽ: Chỉ số bổ sung"),
+        (chart_network_bars,       "Chart: Network Metrics"),
+        (chart_quality_bars,       "Chart: Video Quality"),
+        (chart_distribution,       "Chart: Distribution (violin)"),
+        (chart_timeline,           "Chart: Timeline"),
+        (chart_radar,              "Chart: Radar chart"),
+        (chart_summary_table,      None),  # handled separately
+        (chart_level_dist,         "Chart: Log level distribution"),
+        (chart_stability,          "Chart: Playback stability"),
+        (chart_categorical,        "Chart: Categorical columns"),
+        (chart_extra_metrics,      "Chart: Supplementary metrics"),
+        (chart_stalling_analysis,  "Chart: Stalling analysis"),
     ]
 
     for i, (fn, msg) in enumerate(chart_steps, start=3):
         if fn == chart_summary_table:
-            _progress(i, "Vẽ: Bảng tổng hợp")
+            _progress(i, "Chart: Summary table")
             fn(summary_df, out_dir)
         else:
             _progress(i, msg)
             fn(h2, h3, out_dir)
 
-    # 13. Xuất CSV
-    _progress(13, "Xuất file CSV thống kê …")
+    # 14. Export CSV
+    _progress(14, "Exporting CSV summary files…")
     export_summary_csv(summary_df, desc_h2, desc_h3, out_dir)
 
-    _progress(TOTAL, "Hoàn thành!")
+    _progress(TOTAL, "Complete!")
     return os.path.abspath(out_dir)
 
 
@@ -1019,43 +1116,43 @@ def gui_mode():
     root.withdraw()
     root.title("ADTube Log Analyzer")
 
-    # Bước 1: chọn file H2
-    messagebox.showinfo("ADTube – Bước 1/2",
-                        "Chọn file CSV log HTTP/2")
+    # Step 1: select H2 file
+    messagebox.showinfo("ADTube – Step 1/2",
+                        "Select the CSV log file for HTTP/2")
     h2_path = filedialog.askopenfilename(
-        title="Chọn file CSV – HTTP/2",
+        title="Select CSV – HTTP/2",
         filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
     )
     if not h2_path:
-        messagebox.showwarning("Hủy", "Bạn chưa chọn file H2. Thoát.")
+        messagebox.showwarning("Cancelled", "No H2 file selected. Exiting.")
         root.destroy()
         return
 
-    # Bước 2: chọn file H3
-    messagebox.showinfo("ADTube – Bước 2/2",
-                        "Chọn file CSV log HTTP/3 (QUIC)")
+    # Step 2: select H3 file
+    messagebox.showinfo("ADTube – Step 2/2",
+                        "Select the CSV log file for HTTP/3 (QUIC)")
     h3_path = filedialog.askopenfilename(
-        title="Chọn file CSV – HTTP/3 (QUIC)",
+        title="Select CSV – HTTP/3 (QUIC)",
         filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
     )
     if not h3_path:
-        messagebox.showwarning("Hủy", "Bạn chưa chọn file H3. Thoát.")
+        messagebox.showwarning("Cancelled", "No H3 file selected. Exiting.")
         root.destroy()
         return
 
-    # Thư mục output
+    # Output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     default_out = os.path.join(
         os.path.dirname(h2_path), f"log_analysis_{timestamp}"
     )
     out_dir = filedialog.askdirectory(
-        title="Chọn thư mục lưu kết quả (Cancel = tự động tạo)",
+        title="Select output folder (Cancel = auto-create)",
         initialdir=os.path.dirname(h2_path),
     ) or default_out
 
-    # Cửa sổ progress
+    # Progress window
     prog_win = tk.Toplevel(root)
-    prog_win.title("Đang phân tích…")
+    prog_win.title("Analyzing…")
     prog_win.resizable(False, False)
     prog_win.geometry("500x170")
     prog_win.configure(bg=BG_COLOR)
@@ -1065,7 +1162,7 @@ def gui_mode():
              font=("Segoe UI", 12, "bold"),
              bg=BG_COLOR, fg=TEXT_COLOR).pack(pady=(18, 4))
 
-    status_var = tk.StringVar(value="Đang chuẩn bị…")
+    status_var = tk.StringVar(value="Preparing…")
     tk.Label(prog_win, textvariable=status_var,
              font=("Segoe UI", 9), bg=BG_COLOR, fg=MUTED_TEXT).pack()
 
@@ -1114,17 +1211,17 @@ def gui_mode():
                     _, result, err = item
                     prog_win.destroy()
                     if err:
-                        messagebox.showerror("Lỗi", str(err))
+                        messagebox.showerror("Error", str(err))
                     else:
                         n_charts = len([f for f in os.listdir(result)
                                         if f.endswith(".png")])
                         n_csvs = len([f for f in os.listdir(result)
                                       if f.endswith(".csv")])
                         ans = messagebox.askyesno(
-                            "Hoàn thành!",
-                            f"Đã tạo {n_charts} biểu đồ "
-                            f"và {n_csvs} file CSV.\n\n"
-                            f"Mở thư mục kết quả ngay?",
+                            "Complete!",
+                            f"Generated {n_charts} charts "
+                            f"and {n_csvs} CSV files.\n\n"
+                            f"Open the output folder now?",
                         )
                         if ans:
                             open_folder(result)
@@ -1145,25 +1242,25 @@ def gui_mode():
 
 def cli_mode():
     parser = argparse.ArgumentParser(
-        description="Phân tích & so sánh log CSV HTTP/2 vs HTTP/3 (QUIC)",
+        description="Analyze & compare CSV logs: HTTP/2 vs HTTP/3 (QUIC)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
-            Ví dụ:
+            Examples:
               python analyze_logs.py h2.csv h3.csv
               python analyze_logs.py h2.csv h3.csv --out ./charts
-            Chạy không có tham số → mở hộp thoại chọn file (GUI mode).
+            Run without arguments → opens file dialog (GUI mode).
         """),
     )
-    parser.add_argument("h2_csv", help="File CSV log HTTP/2")
-    parser.add_argument("h3_csv", help="File CSV log HTTP/3")
+    parser.add_argument("h2_csv", help="CSV log file for HTTP/2")
+    parser.add_argument("h3_csv", help="CSV log file for HTTP/3")
     parser.add_argument("--out", default="./log_analysis",
-                        help="Thư mục lưu kết quả (mặc định: ./log_analysis)")
+                        help="Output directory (default: ./log_analysis)")
     parser.add_argument("--open", action="store_true",
-                        help="Tự mở thư mục output sau khi xong")
+                        help="Auto-open output folder when done")
     args = parser.parse_args()
 
     print(f"\n{'─' * 65}")
-    print("  ADTube Log Analyzer  │  H2 vs H3 (QUIC)")
+    print("  ADTube Log Analyzer  │  HTTP/2 vs HTTP/3 (QUIC)")
     print(f"{'─' * 65}")
     print(f"  H2  ← {args.h2_csv}")
     print(f"  H3  ← {args.h3_csv}")
@@ -1171,7 +1268,7 @@ def cli_mode():
     print(f"{'─' * 65}\n")
 
     out = run_analysis(args.h2_csv, args.h3_csv, args.out)
-    print(f"\n✅ Hoàn thành! Kết quả đã lưu vào: {out}\n")
+    print(f"\n✅ Complete! Results saved to: {out}\n")
 
     if args.open:
         open_folder(out)
