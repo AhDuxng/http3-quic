@@ -1,106 +1,114 @@
-# CSV Log Metrics Reference
+# Chi tiet cot CSV — Tham chieu cho paper Q1
 
-This document describes all columns in the CSV file exported via "Download CSV" (`adtube-metrics-*.csv`).
+Tai lieu mo ta day du tat ca 23 cot trong file CSV xuat tu "Download CSV" (`adtube-metrics-*.csv`).
 
-## 1) Overview
+## 1) Tong quan
 
-Each CSV row is a metric snapshot at the moment a log event was created.
-This means:
+Moi dong CSV la mot snapshot metric tai thoi diem tao log event.
+- Cac dong cung Level co the co metric khac nhau (vi khac thoi diem).
+- Du lieu la trang thai tai thoi diem event, KHONG phai trang thai hien tai.
 
-- Rows may share the same `Level` but have different metric values.
-- Values represent the state at the time of the event, not the "current" state when viewing the file.
+## 2) Thu tu cot CSV
 
-## 2) Column Definitions
+```
+Timestamp, Level, Message, Protocol, NetworkType,
+Bitrate_kbps, Resolution, Throughput_kbps, Buffer_s, FPS,
+TTFB_ms, SDT_ms, Jitter_ms, DownloadSpeed_kbps,
+StallCount, StallDuration_ms, RebufferingRatio,
+DroppedFrames, QualitySwitchCount,
+CurrentTime_s, Duration_s, IsAutoQuality, ActiveScenario
+```
 
-### Event Context
+## 3) Dinh nghia tung cot
 
-| CSV Column | Academic Name | Unit | Source |
+### Nhom event
+
+| Cot | Ten hoc thuat | Don vi | Nguon |
 |---|---|---|---|
-| Timestamp | — | `HH:mm:ss.cs` | Log system |
-| Level | — | Text (`SYS`, `NET`, `INFO`, `WARN`, `ERRO`) | Log system |
-| Message | — | Text | Log system |
+| Timestamp | — | `HH:mm:ss.cs` | He thong log |
+| Level | — | Text | He thong log |
+| Message | — | Text | He thong log |
 
-### Video Quality
+### Nhom giao thuc / mang
 
-| CSV Column | Academic Name | Unit | Source |
-|---|---|---|---|
-| Resolution | Video Resolution | `WxH` | dash.js representation |
-| Bitrate_kbps | Video Bitrate | kbps | representation `bitrateInKbit`/`bandwidth` |
-| Throughput_kbps | Throughput | kbps | Segment samples + dash.js fallback |
-| Buffer_s | Buffer Occupancy | seconds | `player.getBufferLength("video")` |
-| FPS | Frame Rate | fps | `getVideoPlaybackQuality()` |
-| DroppedFrames | Dropped Frames | frames | `VideoPlaybackQuality` |
-| TotalFrames | Total Frames | frames | `VideoPlaybackQuality` |
-| Codec | Codec | Text | Representation info |
-| QualityIndex | Quality Index | integer (0-based) | Matched in reps list |
-| QualityCount | Quality Levels | integer | Reps list length |
-| QualitySwitchCount | Quality Switch Count | events | Quality change events |
-
-### Network / Segment Metrics
-
-| CSV Column | Academic Name | Unit | Source | Accuracy |
+| Cot | Ten hoc thuat | Don vi | Nguon | Do chinh xac |
 |---|---|---|---|---|
-| TTFB_ms | Time To First Byte (TTFB) | ms | `PerformanceResourceTiming: responseStart - requestStart` | ✅ High (requires `Timing-Allow-Origin` header) |
-| Jitter_ms | SDT Jitter | ms | `\|SDT_current - SDT_previous\|` | ✅ Computed |
-| SegmentDownloadTime_ms | Segment Download Time (SDT) | ms | Request timing `endDate - startDate` | ✅ High |
-| DownloadSpeed_kbps | Segment Download Speed | kbps | `(bytesLoaded * 8) / SDT` | ✅ Computed |
-| SegmentSize_KB | Segment Size | KB | Request bytes | ✅ Direct |
-| TotalDownloaded_MB | Total Downloaded | MB | Cumulative bytes | ✅ Cumulative |
-| Protocol | Network Protocol | Text | Resource Timing `nextHopProtocol` | ✅ Browser API |
-| ConnectionType | Connection Type | Text (e.g. `4g`) | Network Information API | ⚠️ Browser-dependent |
-| EstimatedBandwidth_Mbps | Estimated Bandwidth | Mbps | Network Information API (`downlink`) | ⚠️ Browser-dependent |
+| Protocol | Network Protocol | Text | `PerformanceResourceTiming.nextHopProtocol` | ✅ Cao |
+| NetworkType | Physical Network Type | Text | `navigator.connection.type` | ✅ Chinh xac loai ket noi vat ly |
 
-### Playback Stability (Stalling)
+### Nhom chat luong video
 
-| CSV Column | Academic Name | Unit | Source | Description |
+| Cot | Ten hoc thuat | Don vi | Nguon | Do chinh xac |
 |---|---|---|---|---|
-| StallCount | Stall Count | events | dash.js `BUFFER_EMPTY` event | Number of buffer depletion events (academically standard) |
-| StallDuration_ms | Total Stall Duration | ms | `BUFFER_EMPTY → BUFFER_LOADED` timing | Cumulative time in stalled state |
-| RebufferCount | Rebuffer Count | events | HTML5 video `waiting` event | Complementary measurement |
-| RebufferDuration_ms | Total Rebuffer Duration | ms | `waiting → play` timing | Cumulative time in buffering state |
-| RebufferingRatio | Rebuffering Ratio | ratio [0,1] | `totalStallDuration / totalPlaybackDuration` | Key QoE metric for research |
+| Bitrate_kbps | Video Bitrate | kbps | dash.js `representation.bitrateInKbit` | ✅ Truc tiep |
+| Resolution | Video Resolution | `WxH` | dash.js `representation.width/height` | ✅ Truc tiep |
+| Throughput_kbps | Throughput | kbps | Trung binh mau segment 1s / fallback `player.getAverageThroughput()` | ✅ Cao |
+| Buffer_s | Buffer Occupancy | giay | `player.getBufferLength("video")` | ✅ Truc tiep |
+| FPS | Frame Rate | fps (so) | `delta(totalVideoFrames) / delta(currentTime)` | ✅ Tinh toan |
 
-### Playback Position
+### Nhom mang / segment
 
-| CSV Column | Academic Name | Unit | Source |
+| Cot | Ten hoc thuat | Don vi | Nguon | Do chinh xac |
+|---|---|---|---|---|
+| TTFB_ms | Time To First Byte | ms | `PerformanceResourceTiming: responseStart - requestStart` | ✅ Cao (can `Timing-Allow-Origin`) |
+| SDT_ms | Segment Download Time | ms | `endDate - startDate` request / fallback trace / fallback Performance API | ✅ Cao |
+| Jitter_ms | SDT Jitter | ms | `|SDT_hien_tai - SDT_truoc|` | ✅ Tinh toan |
+| DownloadSpeed_kbps | Download Speed | kbps | `(bytesLoaded × 8) / SDT_ms` | ✅ Tinh toan |
+
+### Nhom on dinh phat lai
+
+| Cot | Ten hoc thuat | Don vi | Nguon | Do chinh xac |
+|---|---|---|---|---|
+| StallCount | Stall Count | su kien | dash.js `BUFFER_EMPTY` event | ✅ Chuan hoc thuat |
+| StallDuration_ms | Total Stall Duration | ms | `BUFFER_EMPTY → BUFFER_LOADED` timing | ✅ Chinh xac |
+| RebufferingRatio | Rebuffering Ratio | [0, 1] | `totalStallDuration / (currentTime × 1000)` | ✅ Chuan QoE |
+| DroppedFrames | Dropped Frames | khung hinh | `VideoPlaybackQuality.droppedVideoFrames` | ✅ Browser API |
+| QualitySwitchCount | Quality Switch Count | su kien | `QUALITY_CHANGE_RENDERED` events | ✅ Truc tiep |
+
+### Nhom vi tri
+
+| Cot | Ten hoc thuat | Don vi | Nguon |
 |---|---|---|---|
-| CurrentTime_s | Playback Position | seconds | `HTMLVideoElement.currentTime` |
-| Duration_s | Media Duration | seconds | `HTMLVideoElement.duration` |
+| CurrentTime_s | Playback Position | giay | `HTMLVideoElement.currentTime` |
+| Duration_s | Media Duration | giay | `HTMLVideoElement.duration` |
 
-### Control Context
+### Nhom ngu canh
 
-| CSV Column | Description |
+| Cot | Mo ta |
 |---|---|
-| IsAutoQuality | `true` = Auto ABR, `false` = Manual quality |
-| ActiveScenario | Currently active network scenario name |
+| IsAutoQuality | `true` = Auto ABR, `false` = Manual |
+| ActiveScenario | Ten kich ban mang dang dung |
 
-## 3) Key Formulas
+## 4) Cong thuc tinh toan
 
-- `DownloadSpeed_kbps = (bytesLoaded × 8) / SegmentDownloadTime_ms`
-- `Jitter_ms = |SDT_current − SDT_previous|`
-- `TTFB_ms = responseStart − requestStart` (Performance Resource Timing API)
-- `RebufferingRatio = totalStallDuration / (currentTime × 1000)`
-- `Throughput_kbps`: weighted average of recent segment download speeds; fallback to player API.
+```
+DownloadSpeed_kbps  = (bytesLoaded × 8) / SDT_ms
+Throughput_kbps     = average(segment speeds trong 1 giay gan nhat)
+Jitter_ms           = |SDT_i − SDT_{i−1}|
+TTFB_ms             = responseStart − requestStart
+RebufferingRatio    = totalStallDuration_ms / (currentTime_s × 1000)
+FPS                 = (totalFrames_t2 − totalFrames_t1) / (time_t2 − time_t1)
+```
 
-## 4) Quick Analysis Guide
+## 5) Huong dan phan tich nhanh
 
-- **Video quality**: `Bitrate_kbps`, `QualityIndex`, `QualitySwitchCount`
-- **Playback stability**: `StallCount`, `StallDuration_ms`, `RebufferingRatio`, `Buffer_s`, `DroppedFrames`
-- **Network performance**: `TTFB_ms`, `Jitter_ms`, `SegmentDownloadTime_ms`, `DownloadSpeed_kbps`, `Protocol`
-- **Connection context**: `ConnectionType`, `EstimatedBandwidth_Mbps`, `ActiveScenario`
+- **Chat luong video**: `Bitrate_kbps`, `Throughput_kbps`, `QualitySwitchCount`
+- **On dinh phat**: `StallCount`, `StallDuration_ms`, `RebufferingRatio`, `Buffer_s`, `DroppedFrames`
+- **Hieu nang mang**: `TTFB_ms`, `Jitter_ms`, `SDT_ms`, `DownloadSpeed_kbps`, `Protocol`
+- **Ngu canh**: `NetworkType`, `ActiveScenario`
 
-## 5) Metric Naming Conventions
+## 6) Quy uoc ten chi so
 
-All metric names follow conventions used in IEEE/ACM adaptive streaming QoE literature:
+Ten chi so tuan theo quy uoc IEEE/ACM trong nghien cuu adaptive streaming QoE:
 
-- **SDT** (Segment Download Time) — not "Latency" (which was ambiguous)
-- **TTFB** (Time To First Byte) — not "RTT" (which cannot be accurately measured from browser)
-- **Stall Count/Duration** — measured via dash.js `BUFFER_EMPTY`/`BUFFER_LOADED` events
-- **Rebuffering Ratio** — standard QoE metric: `total_stall_time / total_playback_time`
+- **SDT** (Segment Download Time) — KHONG dung "Latency" (mo ho)
+- **TTFB** (Time To First Byte) — KHONG dung "RTT" (khong do chinh xac tu browser)
+- **Stall** — do tu dash.js `BUFFER_EMPTY`/`BUFFER_LOADED` (chuan hoc thuat)
+- **Rebuffering Ratio** — chi so QoE chuan: `tong_thoi_gian_stall / tong_thoi_gian_phat`
 
-## 6) Important Notes
+## 7) Ghi chu quan trong
 
-- `Protocol` and network metrics depend on browser API support (`Resource Timing`, `Network Information API`).
-- If browser doesn't expose full data, some fields may fallback (`DASH / HTTPS`, `0`, or `—`).
-- CSV is exported with UTF-8 BOM for compatibility with Excel.
-- The `Timing-Allow-Origin` header must be set on the media server for accurate TTFB measurement.
+- `Protocol` va metric mang phu thuoc API cua browser (`Resource Timing`, `Network Information API`).
+- Khong co du lieu thi mot so cot fallback ve `Detecting...`, `0`, hoac `unknown`.
+- CSV xuat voi UTF-8 BOM tuong thich Excel.
+- Header `Timing-Allow-Origin` phai duoc cau hinh tren server de TTFB chinh xac.

@@ -1,102 +1,101 @@
-# Log Metrics Guide
+# Huong dan Log Metrics
 
-This document explains the metrics in the console log panel and CSV export (`adtube-metrics-*.csv`).
+Tai lieu giai thich cac chi so trong console log panel va file CSV (`adtube-metrics-*.csv`).
 
-## 1) Log Entry Structure (UI)
+## 1) Cau truc Log Entry (UI)
 
-Each log entry in the panel has 4 columns:
+Moi dong log co 4 cot:
 
-- **Timestamp**: event creation time, format `HH:mm:ss.cs` (cs = centisecond).
-- **Level**: log severity (`SYS`, `NET`, `INFO`, `WARN`, `ERRO`).
-- **Protocol**: detected network protocol at log time (e.g. `HTTP/3 (QUIC)`, `HTTP/2`).
-- **Message**: event description.
+- **Timestamp**: thoi diem tao event, dinh dang `HH:mm:ss.cs` (cs = phan tram giay).
+- **Level**: muc do (`SYS`, `NET`, `INFO`, `WARN`, `ERRO`).
+- **Protocol**: giao thuc mang phat hien tai thoi diem log (`HTTP/3 (QUIC)`, `HTTP/2`).
+- **Message**: mo ta su kien.
 
-Note: the system uses "per-log snapshots" — each log entry holds its own set of metrics at the time of creation.
+He thong su dung "per-log snapshots" — moi log entry chua toan bo metric tai thoi diem tao.
 
-## 2) Log Level Definitions
+## 2) Dinh nghia Log Level
 
-- **SYS**: system/player events (init, start, pause, manifest load, stall resolve...).
-- **NET**: segment download events (size, SDT, TTFB...).
-- **INFO**: informational (scenario applied, quality upgraded...).
-- **WARN**: warnings (quality reduced, stall detected, rebuffering...).
-- **ERRO**: errors (player error, API failure...).
+- **SYS**: su kien he thong (init, start, pause, manifest, stall resolve...).
+- **NET**: tai segment (size, SDT, TTFB...).
+- **INFO**: thong tin (scenario applied, quality upgraded...).
+- **WARN**: canh bao (quality reduced, stall detected...).
+- **ERRO**: loi (player error, API failure...).
 
-## 3) CSV Columns
+## 3) Cac cot CSV (23 cot)
 
-### Event Group
+### Nhom event
 
-- `Timestamp`: event creation time.
-- `Level`: log severity.
-- `Message`: event description.
-
-### Video Quality Group
-
-- `Resolution`: current resolution (`WxH`).
-- `Bitrate_kbps`: current representation bitrate (kbps).
-- `Throughput_kbps`: measured throughput (kbps).
-- `FPS`: realtime frame rate from `VideoPlaybackQuality`.
-- `DroppedFrames`: cumulative dropped frames.
-- `TotalFrames`: cumulative rendered frames.
-- `Codec`: current representation codec (e.g. `avc1...`).
-- `QualityIndex`: current quality index (0-based).
-- `QualityCount`: total quality levels.
-- `QualitySwitchCount`: number of quality changes in session.
-
-### Buffer & Playback Group
-
-- `Buffer_s`: video buffer occupancy (seconds).
-- `CurrentTime_s`: playback position (seconds).
-- `Duration_s`: total media duration (seconds).
-- `StallCount`: number of stall events (dash.js `BUFFER_EMPTY`).
-- `StallDuration_ms`: cumulative stall duration (ms).
-- `RebufferCount`: number of rebuffer events (HTML5 `waiting`).
-- `RebufferDuration_ms`: cumulative rebuffer duration (ms).
-- `RebufferingRatio`: `totalStallDuration / totalPlaybackDuration` (ratio, 0–1).
-
-### Network / Segment Group
-
-- `Protocol`: detected protocol from Resource Timing (`nextHopProtocol`).
-- `TTFB_ms`: Time To First Byte — `responseStart - requestStart` (ms).
-- `Jitter_ms`: SDT Jitter — `|SDT_current - SDT_previous|` (ms).
-- `SegmentDownloadTime_ms`: Segment Download Time — total segment fetch time (ms).
-- `DownloadSpeed_kbps`: segment download speed (kbps).
-- `SegmentSize_KB`: segment size (KB).
-- `TotalDownloaded_MB`: cumulative download (MB).
-- `ConnectionType`: browser-reported connection type (e.g. `4g`, `wifi`).
-- `EstimatedBandwidth_Mbps`: browser-estimated bandwidth from `Network Information API` (Mbps).
-
-### Control Context
-
-- `IsAutoQuality`: quality mode at log time (`true` = ABR auto, `false` = manual).
-- `ActiveScenario`: active network scenario name.
-
-## 4) Key Formulas
-
-- `DownloadSpeed_kbps = (bytesLoaded × 8) / SegmentDownloadTime_ms`
-- `Throughput_kbps = average of segment DL speeds in recent window`
-- `Jitter_ms = |SDT_now − SDT_prev|` (SDT = Segment Download Time)
-- `TTFB_ms = responseStart − requestStart` (from PerformanceResourceTiming API)
-- `RebufferingRatio = totalStallDuration / (currentTime × 1000)`
-
-## 5) Why same level but different metrics?
-
-Each log is an independent snapshot. Two `NET` or `SYS` entries can have different metrics if created at different times.
-
-## 6) Stall vs Rebuffer
-
-The system tracks buffering events from TWO sources:
-
-| Metric | Source | Description |
+| Cot CSV | Don vi | Nguon |
 |---|---|---|
-| Stall Count / Duration | dash.js `BUFFER_EMPTY` → `BUFFER_LOADED` | More accurate — detects actual buffer depletion at player level |
-| Rebuffer Count / Duration | HTML5 `waiting` → `play` events | Complementary — captures browser-level buffering |
+| `Timestamp` | `HH:mm:ss.cs` | He thong log |
+| `Level` | Text | He thong log |
+| `Message` | Text | He thong log |
 
-Both are logged for academic comparison. **Stall metrics** (from dash.js events) are recommended as the primary indicator for research papers.
+### Nhom mang / giao thuc
 
-## 7) Accuracy Notes
+| Cot CSV | Don vi | Nguon |
+|---|---|---|
+| `Protocol` | Text | `PerformanceResourceTiming.nextHopProtocol` |
+| `NetworkType` | Text (`wifi`, `cellular`, `ethernet`) | `navigator.connection.type` |
 
-- TTFB requires `Timing-Allow-Origin` header on the server. Without it, browser zeros out timing values.
-- Protocol detection uses `PerformanceResourceTiming.nextHopProtocol`.
-- Network context metrics depend on browser support (`Network Information API`).
-- Some fields may fallback to default values (`DASH / HTTPS`, `0`, or `—`) if browser doesn't expose data.
-- CSV is exported with UTF-8 BOM for Excel compatibility.
+### Nhom chat luong video
+
+| Cot CSV | Don vi | Nguon |
+|---|---|---|
+| `Bitrate_kbps` | kbps | dash.js representation `bitrateInKbit`/`bandwidth` |
+| `Resolution` | `WxH` | dash.js representation |
+| `Throughput_kbps` | kbps | Trung binh mau segment / `player.getAverageThroughput()` |
+| `Buffer_s` | giay | `player.getBufferLength("video")` |
+| `FPS` | so | `delta(totalVideoFrames) / delta(currentTime)` |
+
+### Nhom mang / segment
+
+| Cot CSV | Don vi | Nguon |
+|---|---|---|
+| `TTFB_ms` | ms | `PerformanceResourceTiming: responseStart - requestStart` |
+| `SDT_ms` | ms | `endDate - startDate` cua segment request |
+| `Jitter_ms` | ms | `|SDT_hien_tai - SDT_truoc|` |
+| `DownloadSpeed_kbps` | kbps | `(bytesLoaded × 8) / SDT_ms` |
+
+### Nhom on dinh phat
+
+| Cot CSV | Don vi | Nguon |
+|---|---|---|
+| `StallCount` | so lan | So event `BUFFER_EMPTY` tu dash.js |
+| `StallDuration_ms` | ms | Tong thoi gian `BUFFER_EMPTY → BUFFER_LOADED` |
+| `RebufferingRatio` | [0, 1] | `totalStallDuration / totalPlaybackDuration` |
+| `DroppedFrames` | so khung | `VideoPlaybackQuality.droppedVideoFrames` |
+| `QualitySwitchCount` | so lan | So event `QUALITY_CHANGE_RENDERED` |
+
+### Nhom vi tri phat
+
+| Cot CSV | Don vi | Nguon |
+|---|---|---|
+| `CurrentTime_s` | giay | `HTMLVideoElement.currentTime` |
+| `Duration_s` | giay | `HTMLVideoElement.duration` |
+
+### Nhom ngu canh
+
+| Cot CSV | Mo ta |
+|---|---|
+| `IsAutoQuality` | `true` = Auto ABR, `false` = Manual |
+| `ActiveScenario` | Ten kich ban mang dang ap dung |
+
+## 4) Cong thuc chinh
+
+```
+DownloadSpeed_kbps = (bytesLoaded × 8) / SDT_ms
+Throughput_kbps    = trung binh cac mau segment download speed trong 1 giay
+Jitter_ms          = |SDT_hien_tai − SDT_truoc|
+TTFB_ms            = responseStart − requestStart  (Performance Resource Timing API)
+RebufferingRatio   = totalStallDuration / (currentTime × 1000)
+FPS                = (totalFrames_t2 - totalFrames_t1) / (currentTime_t2 - currentTime_t1)
+```
+
+## 5) Ghi chu ve do chinh xac
+
+- **TTFB** yeu cau header `Timing-Allow-Origin` tren server. Khong co thi browser tra ve 0.
+- **Protocol** lay tu `PerformanceResourceTiming.nextHopProtocol`.
+- **NetworkType** dung `navigator.connection.type` (loai ket noi vat ly thuc), KHONG dung `effectiveType` (luon tra "4g" cho WiFi tot).
+- **Stall** do tu dash.js `BUFFER_EMPTY`/`BUFFER_LOADED` — chinh xac hon HTML5 "waiting" event.
+- CSV xuat voi UTF-8 BOM de tuong thich Excel.
