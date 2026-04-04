@@ -1,7 +1,7 @@
 // useStallTracker.ts — Theo doi stall (buffer depletion) tu dash.js
 //
 // Stall = BUFFER_EMPTY -> BUFFER_LOADED events
-// Chinh xac hon HTML5 "waiting" event cho paper Q1
+// Chinh xac hon HTML5 "waiting" event cho paper 
 
 import { useCallback, useRef } from "react";
 import type { StreamStats } from "../type/dashPlayer";

@@ -926,7 +926,7 @@ def chart_extra_metrics(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CHART 11: Stalling Analysis (NEW - critical for Q1 paper)
+#  CHART 11: Stalling Analysis (NEW - critical for paper)
 # ═══════════════════════════════════════════════════════════════════════
 
 def chart_stalling_analysis(h2: pd.DataFrame, h3: pd.DataFrame, out_dir: str):

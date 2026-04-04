@@ -1,4 +1,4 @@
-# Chi tiet cot CSV — Tham chieu cho paper Q1
+# Chi tiet cot CSV — Tham chieu cho paper
 
 Tai lieu mo ta day du tat ca 23 cot trong file CSV xuat tu "Download CSV" (`adtube-metrics-*.csv`).
 

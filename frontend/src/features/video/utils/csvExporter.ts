@@ -3,7 +3,7 @@
 import type { LogEntry, StreamStats } from "../type/dashPlayer";
 import { formatBitrateKbps, formatTime } from "./formatters";
 
-// Thu tu cot CSV chuan cho paper Q1
+// Thu tu cot CSV chuan cho paper 
 const CSV_HEADER = [
   "Timestamp", "Level", "Message", "Protocol", "NetworkType",
   "Bitrate_kbps", "Resolution", "Throughput_kbps", "Buffer_s", "FPS",

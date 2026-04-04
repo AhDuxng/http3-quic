@@ -1,6 +1,6 @@
 // dashPlayer.ts — Kieu du lieu cho useDashPlayer hook
 //
-// Chi so chuan cho paper Q1 so sanh H2 vs H3 trong DASH streaming:
+// Chi so chuan cho paper so sanh H2 vs H3 trong DASH streaming:
 //   SDT = Segment Download Time
 //   TTFB = Time To First Byte (responseStart - requestStart)
 //   Stall = su kien BUFFER_EMPTY tu dash.js

@@ -1,6 +1,5 @@
 """
 Script tạo báo cáo MetricCalculationReport.docx
-Báo cáo chi tiết cách tính từng thông số đo lường cho paper Q1.
 """
 from docx import Document
 from docx.shared import Pt, Inches, Cm, RGBColor
@@ -306,7 +305,7 @@ def main():
         '• ABR chọn bitrate quá cao\n'
         '• Môi trường mạng đột ngột xấu đi',
         'Thấp hơn = tốt hơn. Mỗi stall là một lần video bị dừng hình → trải nghiệm người dùng rất xấu. '
-        'Đây là chỉ số quan trọng nhất trong QoE research. Paper Q1 bắt buộc phải có. '
+        'Đây là chỉ số quan trọng nhất trong QoE research. Paper bắt buộc phải có. '
         'BUFFER_EMPTY (dash.js) chính xác hơn HTML5 "waiting" event vì chỉ phản ánh buffer depletion thực sự.'
     )
 
@@ -487,7 +486,7 @@ def main():
 
     legend = doc.add_paragraph()
     legend.add_run('Chú thích: ').bold = True
-    legend.add_run('★★★ = Bắt buộc trong paper Q1 | ★★☆ = Nên có | ★☆☆ = Bổ sung thêm | Metadata/Biến độc lập = Không so sánh trực tiếp')
+    legend.add_run('★★★ = Bắt buộc trong paper | ★★☆ = Nên có | ★☆☆ = Bổ sung thêm | Metadata/Biến độc lập = Không so sánh trực tiếp')
 
     # ===== PHẦN 4: TÀI LIỆU THAM KHẢO =====
     doc.add_heading('4. Tài liệu tham khảo', level=1)
