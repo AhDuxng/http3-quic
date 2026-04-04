@@ -1,4 +1,4 @@
-// useMedia2Videos.ts - Hook lay danh sach video MP4 tu media-2
+// useMedia2Videos.ts — Hook lay danh sach video MP4 tu media-2
 import { useEffect, useState } from "react";
 import type { Media2Video } from "../../../type/video";
 

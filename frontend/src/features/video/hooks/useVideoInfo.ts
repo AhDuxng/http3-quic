@@ -1,7 +1,8 @@
+// useVideoInfo.ts — Hook lay metadata video tu backend API
 import { useEffect, useState } from "react";
 import type { VideoInfo } from "../../../type/video";
 
-// Explicit return type for the hook - helps consumers know exactly what is returned
+// Kieu tra ve cua hook
 interface UseVideoInfoResult {
   videoInfo: VideoInfo | null;
   isLoading: boolean;
@@ -14,8 +15,7 @@ export function useVideoInfo(): UseVideoInfoResult {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Cleanup mechanism: marks if the component is still active
-    // If component unmounts before fetch finishes, do not set state
+    // Cleanup: danh dau component con active khong
     let isActive = true;
 
     async function load() {
@@ -23,15 +23,13 @@ export function useVideoInfo(): UseVideoInfoResult {
         setIsLoading(true);
         setError(null);
 
-        // Call backend API to fetch video metadata
+        // Goi API backend lay metadata video
         const response = await fetch("/api/video-info");
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: Failed to load video info`);
         }
 
         const data = (await response.json()) as VideoInfo;
-
-        // Only update state if the component is still mounted
         if (!isActive) return;
         setVideoInfo(data);
       } catch (e) {
@@ -44,11 +42,9 @@ export function useVideoInfo(): UseVideoInfoResult {
 
     load();
 
-    // Return cleanup function: mark as inactive upon unmount
-    return () => {
-      isActive = false;
-    };
-  }, []); // Only run once on mount
+    // Danh dau inactive khi unmount
+    return () => { isActive = false; };
+  }, []); // Chi chay 1 lan khi mount
 
   return { videoInfo, isLoading, error };
 }
