@@ -1,15 +1,15 @@
 /**
- * main.jsx - Entry point cua React app.
+ * main.jsx - Entry point of React app.
  *
- * Mount component App vao DOM element #root.
- * StrictMode giup phat hien side-effect va deprecated API trong development.
+ * Mounts the App component to the #root DOM element.
+ * StrictMode helps detect side-effects and deprecated APIs in development.
  */
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 
-// Mount app vao the <div id="root"> trong index.html
+// Mount app to the <div id="root"> tag in index.html
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <App />

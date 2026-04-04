@@ -4,15 +4,15 @@ import { useVideoInfo } from "./features/video/hooks/useVideoInfo";
 import { FaExchangeAlt } from "react-icons/fa";
 import "./App.css";
 
-// Cau hinh nguon video
-// "dash" (media/) dung codec HEVC (hvc1.x) - trinh duyet KHONG ho tro qua MSE/dash.js
-// "media2" (media-2/) dung codec H.264 (avc1.x) - ho tro toan bo trinh duyet
+// Video source configuration
+// "dash" (media/) uses HEVC codec (hvc1.x) - NOT supported by browsers via MSE/dash.js
+// "media2" (media-2/) uses H.264 codec (avc1.x) - supported by all browsers
 const VIDEO_SOURCES = {
   media2: { manifestUrl: "/media-2/dash/stream.mpd", label: "Media-2 (H.264 DASH)" },
   dash: { manifestUrl: "/media/stream.mpd", label: "HEVC DASH (unsupported)" },
 };
 
-// Lay mau badge va label tuong ung voi giao thuc dang dung
+// Get badge and label corresponding to the protocol in use
 function getProtocolBadge(protocol) {
   const p = protocol.toLowerCase();
   if (p.includes("h3") || p.includes("quic")) {
@@ -28,23 +28,23 @@ function getProtocolBadge(protocol) {
 }
 
 function App() {
-  // Ref de goi VideoPlayer.reset() tu header khi nhan "Reset Stats"
+  // Ref to call VideoPlayer.reset() from header when clicking "Reset Stats"
   const playerRef = useRef(null);
 
   const { videoInfo, isLoading, error } = useVideoInfo();
 
-  // Nguon video dang hien thi: "media2" (mac dinh, H.264) | "dash" (HEVC)
+  // Currently displayed video source: "media2" (default, H.264) | "dash" (HEVC)
   const [activeSource, setActiveSource] = useState("media2");
 
-  // Giao thuc HTTP thuc te detect tu Performance API (cap nhat theo thoi gian thuc)
+  // Actual HTTP protocol detected from Performance API (updated in real-time)
   const [detectedProtocol, setDetectedProtocol] = useState("Detecting...");
 
-  // Callback nhan protocol tu VideoPlayer component
+  // Callback to receive protocol from VideoPlayer component
   const handleProtocolChange = useCallback((protocol) => {
     setDetectedProtocol(protocol);
   }, []);
 
-  // Chuyen doi nguon video
+  // Switch video source
   const toggleSource = () => {
     setActiveSource((prev) => (prev === "dash" ? "media2" : "dash"));
   };
@@ -62,7 +62,7 @@ function App() {
           <span className="font-extrabold text-slate-900 text-lg tracking-tight">ADTUBE</span>
           <span className="text-slate-400 text-xs font-medium tracking-widest uppercase">Analyzer</span>
 
-          {/* Badge giao thuc HTTP - hien thi trang thai thuc te (tu Performance API) */}
+          {/* HTTP protocol badge - displays actual status (from Performance API) */}
           <span className={`flex items-center gap-1.5 ${badge.bg} text-white text-[10px] font-bold px-2.5 py-1 rounded-full tracking-wide transition-colors duration-500`}>
             <span className={`w-1.5 h-1.5 ${badge.dot} rounded-full`} />
             {badge.text}
@@ -71,7 +71,7 @@ function App() {
 
         {/* Action buttons */}
         <div className="flex items-center gap-2">
-          {/* Indicator nguon dang active */}
+          {/* Active source indicator */}
           <span className={`text-[10px] font-bold tracking-wider px-2.5 py-1 rounded-full ${
             activeSource === "dash"
               ? "bg-blue-50 text-blue-600"
@@ -80,7 +80,7 @@ function App() {
             {currentSource.label}
           </span>
 
-          {/* Nut chuyen doi nguon video */}
+          {/* Switch video source button */}
           <button
             onClick={toggleSource}
             className="flex items-center gap-1.5 text-sm border border-slate-300 text-slate-600 px-4 py-1.5 rounded hover:bg-slate-50 transition-colors"
@@ -98,10 +98,10 @@ function App() {
         </div>
       </header>
 
-      {/* ===== Noi dung chinh ===== */}
+      {/* ===== Main Content ===== */}
       <main className="flex-1 w-full max-w-[1536px] mx-auto p-4 md:p-6">
         {videoInfo ? (
-          /* Key = activeSource de React remount VideoPlayer khi chuyen nguon */
+          /* Key = activeSource to make React remount VideoPlayer when switching sources */
           <VideoPlayer
             key={activeSource}
             ref={playerRef}
@@ -109,7 +109,7 @@ function App() {
             onProtocolChange={handleProtocolChange}
           />
         ) : (
-          /* Trang thai Loading / Error */
+          /* Loading / Error state */
           <div className="h-full flex flex-col items-center justify-center">
             {isLoading ? (
               <>
