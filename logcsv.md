@@ -1,70 +1,106 @@
 # CSV Log Metrics Reference
 
-Tài liệu này mô tả các cột trong file CSV khi bấm Download CSV (`adtube-metrics-*.csv`).
+This document describes all columns in the CSV file exported via "Download CSV" (`adtube-metrics-*.csv`).
 
-## 1) Tổng quan
+## 1) Overview
 
-Mỗi dòng CSV là một snapshot metrics tại thời điểm một sự kiện log được tạo.
-Điều này có nghĩa:
+Each CSV row is a metric snapshot at the moment a log event was created.
+This means:
 
-- Các dòng có thể cùng `Level` nhưng số liệu khác nhau.
-- Giá trị không phải là "trạng thái hiện tại" tại lúc bạn mở file, mà là tại thời điểm event xảy ra.
+- Rows may share the same `Level` but have different metric values.
+- Values represent the state at the time of the event, not the "current" state when viewing the file.
 
-## 2) Danh sách cột và ý nghĩa
+## 2) Column Definitions
 
-| Cột CSV | Ý nghĩa | Đơn vị / Định dạng | Nguồn dữ liệu |
+### Event Context
+
+| CSV Column | Academic Name | Unit | Source |
 |---|---|---|---|
-| Timestamp | Mốc thời gian của event log | `HH:mm:ss.cs` | Hệ thống log |
-| Level | Mức độ log (`SYS`, `NET`, `INFO`, `WARN`, `ERRO`) | Text | Hệ thống log |
-| Message | Nội dung event | Text | Hệ thống log |
-| Resolution | Độ phân giải stream hiện tại | `WxH` | dash.js representation |
-| Bitrate_kbps | Bitrate quality đang render | kbps | representation (`bitrateInKbit`/`bandwidth`) |
-| Throughput_kbps | Throughput ước tính gần thời điểm log | kbps | Mẫu segment + fallback dash.js |
-| Buffer_s | Độ dài bộ đệm video | giây (s) | `player.getBufferLength("video")` |
-| FPS | Tốc độ khung hình realtime | fps | `getVideoPlaybackQuality()` |
-| DroppedFrames | Số frame bị rơi | frames | `VideoPlaybackQuality` |
-| TotalFrames | Tổng frame đã render | frames | `VideoPlaybackQuality` |
-| Latency_ms | Thời gian tải segment gần nhất | ms | Request timing |
-| Jitter_ms | Biên độ dao động latency giữa 2 segment liên tiếp | ms | Tự tính toán |
-| RTT_ms | RTT ước tính | ms | Tự tính toán |
-| DownloadSpeed_kbps | Tốc độ tải segment gần nhất | kbps | Từ `bytesLoaded/durationMs` |
-| SegmentSize_KB | Kích thước segment gần nhất | KB | Request bytes |
-| SegmentDuration_ms | Thời gian tải segment gần nhất | ms | Request timing |
-| TotalDownloaded_MB | Tổng dung lượng đã tải | MB | Tổng bytes tích lũy |
-| RebufferCount | Số lần playback bị stall/waiting | lần | Event `waiting` |
-| RebufferDuration_ms | Tổng thời gian stall tích lũy | ms | Đo thời gian waiting -> play |
-| QualitySwitchCount | Số lần đổi quality | lần | Event quality change |
-| CurrentTime_s | Vị trí playback tại lúc log | giây (s) | HTMLVideoElement |
-| Duration_s | Tổng thời lượng media | giây (s) | HTMLVideoElement |
-| Codec | Codec của representation đang phát | Text | Representation info |
-| QualityIndex | Thứ tự quality hiện tại | số nguyên (0-based) | So khớp trong danh sách reps |
-| QualityCount | Tổng số quality levels | số nguyên | Danh sách reps |
-| Protocol | Giao thức mạng phát hiện được | Text | Resource Timing `nextHopProtocol` |
-| ConnectionType | Loại kết nối trình duyệt báo | Text (ví dụ `4g`) | Network Information API |
-| EstimatedBandwidth_Mbps | Băng thông ước tính từ browser | Mbps | Network Information API (`downlink`) |
-| IsAutoQuality | Có đang bật ABR auto hay không | `true` / `false` | Player state |
-| ActiveScenario | Tên network scenario đang active | Text | UI/Scenario state |
+| Timestamp | — | `HH:mm:ss.cs` | Log system |
+| Level | — | Text (`SYS`, `NET`, `INFO`, `WARN`, `ERRO`) | Log system |
+| Message | — | Text | Log system |
 
-## 3) Công thức tính các chỉ số quan trọng
+### Video Quality
 
-- `DownloadSpeed_kbps = (bytesLoaded * 8) / durationMs`
-- `Jitter_ms = abs(latency_hien_tai - latency_truoc)`
-- `TotalDownloaded_MB = tong_bytes / (1024 * 1024)`
-- `Throughput_kbps`: ưu tiên trung bình mẫu segment gần nhất; nếu thiếu mẫu thì fallback API throughput của player.
+| CSV Column | Academic Name | Unit | Source |
+|---|---|---|---|
+| Resolution | Video Resolution | `WxH` | dash.js representation |
+| Bitrate_kbps | Video Bitrate | kbps | representation `bitrateInKbit`/`bandwidth` |
+| Throughput_kbps | Throughput | kbps | Segment samples + dash.js fallback |
+| Buffer_s | Buffer Occupancy | seconds | `player.getBufferLength("video")` |
+| FPS | Frame Rate | fps | `getVideoPlaybackQuality()` |
+| DroppedFrames | Dropped Frames | frames | `VideoPlaybackQuality` |
+| TotalFrames | Total Frames | frames | `VideoPlaybackQuality` |
+| Codec | Codec | Text | Representation info |
+| QualityIndex | Quality Index | integer (0-based) | Matched in reps list |
+| QualityCount | Quality Levels | integer | Reps list length |
+| QualitySwitchCount | Quality Switch Count | events | Quality change events |
 
-## 4) Cách đọc nhanh CSV khi phân tích
+### Network / Segment Metrics
 
-- Kiểm tra chất lượng:
-  - `Bitrate_kbps`, `QualityIndex`, `QualitySwitchCount`
-- Kiểm tra độ ổn định playback:
-  - `Buffer_s`, `RebufferCount`, `RebufferDuration_ms`, `DroppedFrames`
-- Kiểm tra chất lượng mạng:
-  - `Latency_ms`, `Jitter_ms`, `RTT_ms`, `DownloadSpeed_kbps`, `Protocol`
-- Kiểm tra bối cảnh kết nối:
-  - `ConnectionType`, `EstimatedBandwidth_Mbps`, `ActiveScenario`
+| CSV Column | Academic Name | Unit | Source | Accuracy |
+|---|---|---|---|---|
+| TTFB_ms | Time To First Byte (TTFB) | ms | `PerformanceResourceTiming: responseStart - requestStart` | ✅ High (requires `Timing-Allow-Origin` header) |
+| Jitter_ms | SDT Jitter | ms | `\|SDT_current - SDT_previous\|` | ✅ Computed |
+| SegmentDownloadTime_ms | Segment Download Time (SDT) | ms | Request timing `endDate - startDate` | ✅ High |
+| DownloadSpeed_kbps | Segment Download Speed | kbps | `(bytesLoaded * 8) / SDT` | ✅ Computed |
+| SegmentSize_KB | Segment Size | KB | Request bytes | ✅ Direct |
+| TotalDownloaded_MB | Total Downloaded | MB | Cumulative bytes | ✅ Cumulative |
+| Protocol | Network Protocol | Text | Resource Timing `nextHopProtocol` | ✅ Browser API |
+| ConnectionType | Connection Type | Text (e.g. `4g`) | Network Information API | ⚠️ Browser-dependent |
+| EstimatedBandwidth_Mbps | Estimated Bandwidth | Mbps | Network Information API (`downlink`) | ⚠️ Browser-dependent |
 
-## 5) Lưu ý thực tế
+### Playback Stability (Stalling)
 
-- `Protocol` và các thông số mạng phụ thuộc khả năng browser expose API.
-- Nếu browser không cung cấp dữ liệu đầy đủ, một số trường có thể là fallback (`DASH / HTTPS`, `0`, hoặc `—`).
-- File CSV đã được xuất UTF-8 BOM để mở bằng Excel không bị lỗi ký tự.
+| CSV Column | Academic Name | Unit | Source | Description |
+|---|---|---|---|---|
+| StallCount | Stall Count | events | dash.js `BUFFER_EMPTY` event | Number of buffer depletion events (academically standard) |
+| StallDuration_ms | Total Stall Duration | ms | `BUFFER_EMPTY → BUFFER_LOADED` timing | Cumulative time in stalled state |
+| RebufferCount | Rebuffer Count | events | HTML5 video `waiting` event | Complementary measurement |
+| RebufferDuration_ms | Total Rebuffer Duration | ms | `waiting → play` timing | Cumulative time in buffering state |
+| RebufferingRatio | Rebuffering Ratio | ratio [0,1] | `totalStallDuration / totalPlaybackDuration` | Key QoE metric for research |
+
+### Playback Position
+
+| CSV Column | Academic Name | Unit | Source |
+|---|---|---|---|
+| CurrentTime_s | Playback Position | seconds | `HTMLVideoElement.currentTime` |
+| Duration_s | Media Duration | seconds | `HTMLVideoElement.duration` |
+
+### Control Context
+
+| CSV Column | Description |
+|---|---|
+| IsAutoQuality | `true` = Auto ABR, `false` = Manual quality |
+| ActiveScenario | Currently active network scenario name |
+
+## 3) Key Formulas
+
+- `DownloadSpeed_kbps = (bytesLoaded × 8) / SegmentDownloadTime_ms`
+- `Jitter_ms = |SDT_current − SDT_previous|`
+- `TTFB_ms = responseStart − requestStart` (Performance Resource Timing API)
+- `RebufferingRatio = totalStallDuration / (currentTime × 1000)`
+- `Throughput_kbps`: weighted average of recent segment download speeds; fallback to player API.
+
+## 4) Quick Analysis Guide
+
+- **Video quality**: `Bitrate_kbps`, `QualityIndex`, `QualitySwitchCount`
+- **Playback stability**: `StallCount`, `StallDuration_ms`, `RebufferingRatio`, `Buffer_s`, `DroppedFrames`
+- **Network performance**: `TTFB_ms`, `Jitter_ms`, `SegmentDownloadTime_ms`, `DownloadSpeed_kbps`, `Protocol`
+- **Connection context**: `ConnectionType`, `EstimatedBandwidth_Mbps`, `ActiveScenario`
+
+## 5) Metric Naming Conventions
+
+All metric names follow conventions used in IEEE/ACM adaptive streaming QoE literature:
+
+- **SDT** (Segment Download Time) — not "Latency" (which was ambiguous)
+- **TTFB** (Time To First Byte) — not "RTT" (which cannot be accurately measured from browser)
+- **Stall Count/Duration** — measured via dash.js `BUFFER_EMPTY`/`BUFFER_LOADED` events
+- **Rebuffering Ratio** — standard QoE metric: `total_stall_time / total_playback_time`
+
+## 6) Important Notes
+
+- `Protocol` and network metrics depend on browser API support (`Resource Timing`, `Network Information API`).
+- If browser doesn't expose full data, some fields may fallback (`DASH / HTTPS`, `0`, or `—`).
+- CSV is exported with UTF-8 BOM for compatibility with Excel.
+- The `Timing-Allow-Origin` header must be set on the media server for accurate TTFB measurement.
