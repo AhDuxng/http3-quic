@@ -1,10 +1,10 @@
 /*
- * App.css - Style toan cuc cho ung dung.
+ * App.css - Global styles for the application.
  * Hien tai du an su dung Tailwind CSS chu yeu,
  * nen file nay giu lai phan reset can thiet.
  */
 
-/* Reset mac dinh cho #root - tranh gioi han chieu rong khong mong muon */
+/* Default reset for #root - prevents unwanted width limit */
 #root {
   width: 100%;
 }
