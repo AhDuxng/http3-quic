@@ -1,15 +1,13 @@
-/**
- * video.ts - Kieu du lieu dung chung toan ung dung.
- */
+// video.ts — Kieu du lieu dung chung toan ung dung
 
-// Metadata co ban cua video stream
+// Thong tin co ban cua video stream
 export interface VideoInfo {
   title: string;
   description: string;
   manifestUrl: string;
 }
 
-// Thong tin mot video MP4 chia theo bitrate (tu media-2)
+// Thong tin video MP4 chia theo bitrate (tu media-2)
 export interface Media2Video {
   id: string;
   label: string;       // vd: "1008 kbps"
@@ -17,7 +15,7 @@ export interface Media2Video {
   url: string;         // vd: "/media-2/bunny_1008699bps/BigBuckBunny_4snonSeg.mp4"
 }
 
-// ID cua kich ban mang - union type dam bao chi dung gia tri hop le
+// ID cua kich ban mang — union type dam bao chi dung gia tri hop le
 export type NetworkScenarioId =
   | "fiber"
   | "mobile4g"
@@ -31,10 +29,9 @@ export type NetworkScenarioId =
 export interface NetworkScenario {
   id: NetworkScenarioId;
   label: string;
-  speedLabel: string;            // Hien thi toc do, vi du "20 Mbps"
+  speedLabel: string;            // Toc do hien thi, vd "20 Mbps"
   maxBitrateKbps: number | null; // null = khong gioi han
   delayMs?: number;              // Do tre (Ping)
   lossPercent?: number;          // Ty le mat goi tin (%)
   description: string;
 }
-
