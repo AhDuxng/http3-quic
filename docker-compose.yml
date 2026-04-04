@@ -3,18 +3,18 @@ services:
     image: caddy:2.8-alpine
     container_name: caddy_server
     restart: unless-stopped
-    # NET_ADMIN: can thiet de `tc` (traffic control) chay trong container nay
-    # Backend chia se network namespace voi Caddy qua network_mode: service:caddy
-    # -> tc chay tu backend se anh huong truc tiep traffic Caddy phuc vu media
+    # NET_ADMIN: required for `tc` (traffic control) to run in this container
+    # Backend shares network namespace with Caddy via network_mode: service:caddy
+    # -> tc commands executed from backend will directly shape Caddy's media traffic
     cap_add:
       - NET_ADMIN
     ports:
-      - "80:80"        # HTTP (redirect sang HTTPS)
+      - "80:80"        # HTTP (redirects to HTTPS)
       - "443:443"      # HTTPS / HTTP/2
-      - "443:443/udp"  # HTTP/3 (QUIC) - bat buoc mo UDP port 443
+      - "443:443/udp"  # HTTP/3 (QUIC) - UDP port 443 must be opened
     volumes:
-      # Mount toan bo thu muc caddy_config vao /etc/caddy
-      # Bao gom: Caddyfile va certs/server.crt + certs/server.key
+      # Mount entire caddy_config directory into /etc/caddy
+      # Includes Caddyfile and certs/server.crt + certs/server.key
       - ./caddy_config:/etc/caddy:ro
       - ./media:/srv/media:ro
       - ./media-2:/srv/media-2:ro
@@ -40,12 +40,12 @@ services:
       dockerfile: Dockerfile
     container_name: node_backend
     restart: unless-stopped
-    # QUAN TRONG: Chia se network namespace voi Caddy container
-    # -> backend va Caddy dung chung eth0
-    # -> tc qdisc tren eth0 tu backend = tc tren Caddy's eth0
-    # -> Traffic shaping anh huong TRUC TIEP den media/video phuc vu cho browser
+    # IMPORTANT: Share network namespace with Caddy container
+    # -> backend and Caddy share eth0
+    # -> tc qdisc on eth0 from backend = tc on Caddy's eth0
+    # -> Traffic shaping DIRECTLY affects media/video served to browsers
     network_mode: "service:caddy"
-    # NET_ADMIN: quyen chay lenh tc (traffic control / netem)
+    # NET_ADMIN: permission to run tc commands (traffic control / netem)
     cap_add:
       - NET_ADMIN
     environment:
@@ -53,7 +53,7 @@ services:
       - PORT=3000
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
     healthcheck:
-      # Dung localhost vi backend va Caddy chia se network namespace
+      # Use localhost because backend and Caddy share network namespace
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
       interval: 30s
       timeout: 5s
