@@ -3,7 +3,7 @@
 // Stall = BUFFER_EMPTY -> BUFFER_LOADED events
 // Chinh xac hon HTML5 "waiting" event cho paper 
 
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import type { StreamStats } from "../type/dashPlayer";
 
 export interface StallTrackerRefs {
@@ -50,5 +50,6 @@ export function useStallTracker({ updateStats }: UseStallTrackerArgs) {
     stallStartRef.current = null;
   }, []);
 
-  return { onBufferEmpty, onBufferLoaded, getSnapshot, reset };
+  return useMemo(() => ({ onBufferEmpty, onBufferLoaded, getSnapshot, reset }),
+    [onBufferEmpty, onBufferLoaded, getSnapshot, reset]);
 }

@@ -3,7 +3,7 @@
 // Chua logic tinh toan: SDT, TTFB, Jitter, Throughput, FPS, Buffer
 // Tach rieng khoi player init/events de giu useDashPlayer gon
 
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import type { MediaPlayerClass, Representation } from "dashjs";
 import type { StreamStats } from "../type/dashPlayer";
 import { getTTFBFromPerformanceAPI, detectProtocol, getNetworkType } from "../utils/performanceApi";
@@ -213,5 +213,6 @@ export function useStreamMetrics({ updateStats, statsRef }: UseStreamMetricsArgs
     frameSampleRef.current = null;
   }, []);
 
-  return { processSegment, incrementQualitySwitch, pollStats, reset };
+  return useMemo(() => ({ processSegment, incrementQualitySwitch, pollStats, reset }),
+    [processSegment, incrementQualitySwitch, pollStats, reset]);
 }

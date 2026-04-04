@@ -125,13 +125,15 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       syncReps();
       const count = metrics.incrementQualitySwitch();
       const newIdx = e.newQuality ?? -1;
-      const dir = newIdx > prevQIdx ? "upgraded" : "reduced";
+      const isUpgrade = newIdx > prevQIdx;
+      const dir = isUpgrade ? "upgraded" : "reduced";
+      const level = isUpgrade ? "INFO" : "WARN";
       prevQIdx = newIdx;
       try {
         const cur = player.getCurrentRepresentationForType("video");
         if (cur) {
           const q = cur.height ? `${cur.height}p` : "—";
-          addLog(newIdx > prevQIdx ? "INFO" : "WARN",
+          addLog(level as any,
             `Quality ${dir} to ${q} @ ${formatBitrateKbps(getRepBitrateKbps(cur))}.`,
             { qualitySwitchCount: count });
         }
