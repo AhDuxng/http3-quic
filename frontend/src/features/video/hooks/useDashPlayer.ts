@@ -1,4 +1,13 @@
-// useDashPlayer.ts - Hook quan ly toan bo logic DASH player
+// useDashPlayer.ts - Hook managing all DASH player logic
+//
+// Metrics follow academic conventions for adaptive streaming QoE research:
+//   SDT = Segment Download Time (was "Latency_ms")
+//   TTFB = Time To First Byte (was "RTT_ms")
+//   Stall = BUFFER_EMPTY event from dash.js (accurate buffer depletion)
+//   Rebuffer = HTML5 "waiting" event (complementary)
+//   Jitter = |SDT_current - SDT_previous|
+//   Rebuffering Ratio = totalStallDuration / totalPlaybackDuration
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MediaPlayer } from "dashjs";
 import type { MediaPlayerClass, Representation } from "dashjs";
@@ -20,53 +29,48 @@ import {
   DEFAULT_STATS,
 } from "../constants/dashPlayer";
 
-// ===== Ham tien ich =====
+// ===== Utility functions =====
 
-// Dinh dang thoi gian HH:mm:ss.cs (cs = centiseconds)
+// Format timestamp HH:mm:ss.cs (cs = centiseconds)
 function formatTimestamp(date: Date): string {
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
   const cs = pad(Math.floor(date.getMilliseconds() / 10));
   return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${cs}`;
 }
 
-// Lay bitrate (kbps) tu representation: uu tien bitrateInKbit, fallback bandwidth
+// Get bitrate (kbps) from representation: prefer bitrateInKbit, fallback bandwidth
 function getRepBitrateKbps(rep: Representation): number {
   return typeof rep.bitrateInKbit === "number"
     ? rep.bitrateInKbit
     : Math.round((rep.bandwidth ?? 0) / 1000);
 }
 
-// Tao label resolution "WxH" hoac "—"
+// Create resolution label "WxH" or "—"
 function getResolutionLabel(rep: Representation): string {
   return rep.width && rep.height ? `${rep.width}x${rep.height}` : "—";
 }
 
-// Hien thi theo kbps de de doi chieu voi dashboard
+// Display in kbps for dashboard comparison
 function formatBitrateKbps(kbps: number): string {
   const safeKbps = Number.isFinite(kbps) && kbps > 0 ? kbps : 0;
   return `${safeKbps.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kbps`;
 }
 
 /**
- * Detect giao thuc HTTP thuc te tu Performance Resource Timing API.
- * Browser expose `entry.nextHopProtocol` cho biet giao thuc duoc dung:
- *   "h3"      -> HTTP/3 (QUIC) - day la muc tieu cua du an nay
- *   "h2"      -> HTTP/2
- *   "http/1.1"-> HTTP/1.1
- *   ""        -> Khong co thong tin (co the cross-origin hoac khong ho tro)
- *
- * @param urlFragment - Phan URL de loc entry (vi du: "/media-2/" hoac "/media/")
- * @returns Label giao thuc de hien thi tren UI
+ * Detect actual HTTP protocol from Performance Resource Timing API.
+ * Browser exposes `entry.nextHopProtocol`:
+ *   "h3"       -> HTTP/3 (QUIC)
+ *   "h2"       -> HTTP/2
+ *   "http/1.1" -> HTTP/1.1
+ *   ""         -> No info (cross-origin or unsupported)
  */
 function detectProtocolFromPerformance(urlFragment?: string): string {
   try {
     const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
-    // Lay 10 entry gan nhat (nhieu nhat), tim entry co URL khop
     const relevant = entries
       .filter((e) => !urlFragment || e.name.includes(urlFragment))
       .slice(-10);
 
-    // Tim entry co nextHopProtocol ro rang nhat
     for (let i = relevant.length - 1; i >= 0; i--) {
       const proto = (relevant[i] as any).nextHopProtocol as string | undefined;
       if (!proto) continue;
@@ -76,13 +80,35 @@ function detectProtocolFromPerformance(urlFragment?: string): string {
       if (p.startsWith("http/1")) return "HTTP/1.1";
     }
 
-    // Neu khong tim duoc trong /media: thu voi tat ca entries
     if (urlFragment) return detectProtocolFromPerformance(undefined);
-  } catch { /* API co the khong duoc ho tro */ }
-  return "DASH / HTTPS"; // Fallback khi khong detect duoc
+  } catch { /* API may not be supported */ }
+  return "DASH / HTTPS";
 }
 
-// ===== Hook chinh =====
+/**
+ * Get accurate TTFB from Performance Resource Timing API for a segment URL.
+ * TTFB = responseStart - requestStart
+ *
+ * Requires Timing-Allow-Origin header on the server.
+ * Returns 0 if not available.
+ */
+function getTTFBFromPerformanceAPI(segmentUrl: string): number {
+  try {
+    const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i];
+      if (entry.name.includes(segmentUrl) || segmentUrl.includes(entry.name)) {
+        const ttfb = entry.responseStart - entry.requestStart;
+        if (ttfb > 0 && Number.isFinite(ttfb)) {
+          return Math.round(ttfb * 100) / 100; // 2 decimal precision
+        }
+      }
+    }
+  } catch { /* Performance API not available */ }
+  return 0;
+}
+
+// ===== Main hook =====
 
 export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   const { manifestUrl, scenarios } = args;
@@ -93,23 +119,30 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   const lastNetLogRef = useRef(0);
   const frameSampleRef = useRef<{ timeSec: number; totalFrames: number } | null>(null);
 
-  // Muc throughput cua cac segment vua tai xong (gioi han cua so 10s)
+  // Throughput samples from recently downloaded segments (sliding window 10s)
   const segmentThroughputSamplesRef = useRef<Array<{ atMs: number; kbps: number }>>([]);
 
-  // Luu lai thong tin segment cuoi cung de tinh latency/download speed
+  // Last segment info for computing download speed
   const lastSegmentInfoRef = useRef<{
     bytesLoaded: number;
     startTimeMs: number;
     endTimeMs: number;
   } | null>(null);
 
-  // --- Refs cho 8 thong so mang mo rong ---
-  const prevLatencyMsRef = useRef<number | null>(null);    // latency segment truoc (tinh jitter)
-  const qualitySwitchCountRef = useRef(0);                 // dem so lan chuyen quality
-  const totalDownloadedBytesRef = useRef(0);               // tong bytes da tai
-  const rebufferCountRef = useRef(0);                      // so lan rebuffer
-  const rebufferAccumulatedMsRef = useRef(0);              // tong thoi gian rebuffer (ms)
-  const rebufferStartRef = useRef<number | null>(null);    // thoi diem bat dau rebuffer
+  // --- Refs for extended network metrics ---
+  const prevSDTMsRef = useRef<number | null>(null);         // previous SDT for jitter calculation
+  const qualitySwitchCountRef = useRef(0);                   // quality switch counter
+  const totalDownloadedBytesRef = useRef(0);                 // total bytes downloaded
+
+  // --- Rebuffer tracking (HTML5 "waiting" event) ---
+  const rebufferCountRef = useRef(0);
+  const rebufferAccumulatedMsRef = useRef(0);
+  const rebufferStartRef = useRef<number | null>(null);
+
+  // --- Stall tracking (dash.js BUFFER_EMPTY / BUFFER_LOADED) ---
+  const stallCountRef = useRef(0);
+  const stallAccumulatedMsRef = useRef(0);
+  const stallStartRef = useRef<number | null>(null);
 
   const [representations, setRepresentations] = useState<Representation[]>([]);
   const [qualitySelection, setQualitySelectionState] = useState<QualitySelection>("auto");
@@ -133,14 +166,13 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   }, [scenarios]);
 
   const updateStats = useCallback((updater: (prev: StreamStats) => StreamStats) => {
-    // Cập nhật statsRef.current ĐỒNG BỘ ngay lập tức để addLog luôn đọc được giá trị mới nhất
-    // (setStats là bất đồng bộ - React defer việc flush state)
+    // Update statsRef.current SYNCHRONOUSLY so addLog always reads the latest value
     const next = updater(statsRef.current);
     statsRef.current = next;
     setStats(next);
   }, []);
 
-  // Them mot ban ghi vao console log
+  // Add a log entry to the console log panel
   const addLog = useCallback((
     level: LogLevel,
     message: string,
@@ -162,7 +194,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     setLogs((prev) => [entry, ...prev].slice(0, MAX_LOG_ENTRIES));
   }, [scenarioById]);
 
-  // Dong bo representations va bitrate/resolution tu player vao state
+  // Sync representations and bitrate/resolution from player to state
   const syncRepresentationsAndBitrate = useCallback(() => {
     const player = playerRef.current;
     if (!player) return;
@@ -173,14 +205,14 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       const current = player.getCurrentRepresentationForType("video");
       if (!current) return;
 
-      // Lay codec tu representation
+      // Get codec from representation
       let codecLabel = "—";
       try {
         const codecs = (current as any).codecs;
         if (codecs) codecLabel = codecs;
-      } catch { /* ko co codec info */ }
+      } catch { /* no codec info */ }
 
-      // Lay quality index hien tai
+      // Get current quality index
       let qualityIndex = 0;
       let qualityCount = 0;
       try {
@@ -192,7 +224,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
           );
           if (qualityIndex < 0) qualityIndex = 0;
         }
-      } catch { /* bo qua */ }
+      } catch { /* skip */ }
 
       updateStats((prev) => ({
         ...prev,
@@ -202,23 +234,26 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         qualityIndex,
         qualityCount,
       }));
-    } catch { /* player chua san sang */ }
+    } catch { /* player not ready */ }
   }, []);
 
-  // Reset toan bo stats va log ve gia tri mac dinh
+  // Reset all stats and logs to default values
   const resetStats = useCallback(() => {
     setStats(DEFAULT_STATS);
     statsRef.current = DEFAULT_STATS;
     setQualityLog([]);
     setLogs([]);
     setRepresentations([]);
-    // Reset tat ca ref counters de khong bi "nho" gia tri tu phien truoc
-    prevLatencyMsRef.current = null;
+    // Reset all ref counters
+    prevSDTMsRef.current = null;
     qualitySwitchCountRef.current = 0;
     totalDownloadedBytesRef.current = 0;
     rebufferCountRef.current = 0;
     rebufferAccumulatedMsRef.current = 0;
     rebufferStartRef.current = null;
+    stallCountRef.current = 0;
+    stallAccumulatedMsRef.current = 0;
+    stallStartRef.current = null;
     lastSegmentInfoRef.current = null;
     segmentThroughputSamplesRef.current = [];
     logIdRef.current = 0;
@@ -234,7 +269,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     activeScenarioIdRef.current = activeScenarioId;
   }, [activeScenarioId]);
 
-  // ===== Effect: Khoi tao va cleanup dash.js player =====
+  // ===== Effect: Initialize and cleanup dash.js player =====
   useEffect(() => {
     if (!manifestUrl) return;
 
@@ -248,12 +283,12 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
 
     addLog("SYS", "Player initialized. Loading manifest...");
 
-    // Su kien: manifest da tai xong
+    // Event: manifest loaded
     const onManifestLoaded = () => {
       addLog("SYS", `Manifest loaded successfully.`);
     };
 
-    // Su kien: stream san sang, dong bo quality levels lan dau
+    // Event: stream initialized, sync quality levels
     const onStreamInitialized = () => {
       syncRepresentationsAndBitrate();
       try {
@@ -261,7 +296,6 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         const count = Array.isArray(reps) ? reps.length : 0;
         addLog("SYS", `Stream initialized. ${count} quality level(s) available.`);
 
-        // Log chi tiet tung quality level
         if (Array.isArray(reps)) {
           reps.forEach((rep, idx) => {
             const kbps = getRepBitrateKbps(rep);
@@ -269,13 +303,13 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
             addLog("SYS", `  Level ${idx}: ${res} @ ${formatBitrateKbps(kbps)}`);
           });
         }
-      } catch { /* bo qua */ }
+      } catch { /* skip */ }
     };
 
-    // Theo doi quality truoc do de phat hien up/down
+    // Track previous quality index to detect up/down
     let prevQualityIndex = -1;
 
-    // Su kien: chat luong da duoc render
+    // Event: quality rendered
     const onQualityRendered = (event: any) => {
       if (event?.mediaType !== "video") return;
       syncRepresentationsAndBitrate();
@@ -293,7 +327,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         const dir = newIndex > prevQualityIndex ? "upgraded" : "reduced";
         prevQualityIndex = newIndex;
 
-        // Dem so lan chuyen quality TRUOC khi addLog de snapshot co gia tri moi nhat
+        // Increment quality switch count BEFORE addLog so snapshot has latest value
         qualitySwitchCountRef.current += 1;
         updateStats((prev) => ({ ...prev, qualitySwitchCount: qualitySwitchCountRef.current }));
 
@@ -305,17 +339,15 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
           [{ time: formatTimestamp(new Date()), quality, bitrateKbps }, ...prev]
             .slice(0, MAX_QUALITY_LOG_ENTRIES),
         );
-      } catch { /* bo qua */ }
+      } catch { /* skip */ }
     };
 
-    // Su kien: segment da tai xong -> ghi log NET (co throttle) + cap nhat segment stats
+    // Event: segment downloaded -> log NET (throttled) + update segment stats
     const onFragmentLoaded = (event: any) => {
       try {
         const req = event?.request;
 
-        // === LAY BYTES: thu nhieu nguon ===
-        // bytesLoaded/bytesTotal co the la NaN (mac dinh cua FragmentRequest)
-        // nen phai kiem tra Number.isFinite truoc khi dung
+        // === GET BYTES: try multiple sources ===
         let bytesLoaded = 0;
         if (Number.isFinite(req?.bytesLoaded) && req.bytesLoaded > 0) {
           bytesLoaded = req.bytesLoaded;
@@ -327,13 +359,11 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
           bytesLoaded = event.response.byteLength;
         }
 
-        // === LAY TIMING ===
-        // dash.js v5 dung `startDate` / `endDate` (KHONG PHAI requestStartDate / requestEndDate)
-        // Fallback theo thu tu: startDate/endDate -> firstByteDate -> trace array -> Performance API
+        // === GET TIMING ===
         let startTime = 0;
         let endTime = 0;
 
-        // 1) Uu tien: req.startDate / req.endDate (dash.js v5+ FragmentRequest)
+        // 1) Prefer: req.startDate / req.endDate (dash.js v5+ FragmentRequest)
         if (req?.startDate) {
           startTime = req.startDate instanceof Date ? req.startDate.getTime() : new Date(req.startDate).getTime();
         }
@@ -349,18 +379,16 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         if (req?.endDate) {
           endTime = req.endDate instanceof Date ? req.endDate.getTime() : new Date(req.endDate).getTime();
         }
-        // Fallback: requestEndDate (dash.js v3/v4 legacy)
         if (!endTime && req?.requestEndDate) {
           endTime = new Date(req.requestEndDate).getTime();
         }
-        // Fallback cuoi cung: thoi diem hien tai
         if (!endTime) {
           endTime = Date.now();
         }
 
         let durationMs = startTime > 0 && endTime > startTime ? endTime - startTime : 0;
 
-        // 2) Fallback: tinh tu trace array cua dash.js (mang cac doan download)
+        // 2) Fallback: trace array from dash.js
         if (durationMs === 0 && Array.isArray(req?.trace) && req.trace.length > 0) {
           let traceDuration = 0;
           for (const t of req.trace) {
@@ -382,25 +410,10 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
                 }
               }
             }
-          } catch { /* Performance API khong kha dung */ }
+          } catch { /* Performance API unavailable */ }
         }
 
-        // === DEBUG: Log ra console de kiem tra xem co data khong ===
-        if ((import.meta as any).env?.DEV) {
-          console.debug("[FRAGMENT]", {
-            bytesLoaded,
-            durationMs,
-            startDate: req?.startDate,
-            endDate: req?.endDate,
-            firstByteDate: req?.firstByteDate,
-            legacyStartDate: req?.requestStartDate,
-            legacyEndDate: req?.requestEndDate,
-            trace: req?.trace,
-            reqKeys: req ? Object.keys(req) : [],
-          });
-        }
-
-        // Luu segment info cho polling stats
+        // Save segment info for polling stats
         if (bytesLoaded > 0) {
           lastSegmentInfoRef.current = {
             bytesLoaded,
@@ -413,7 +426,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
             ? (bytesLoaded * 8) / durationMs // bits/ms = kbps
             : 0;
 
-          // Luu mau throughput de tinh gia tri realtime theo cua so 1 giay
+          // Save throughput sample for realtime calculation
           if (downloadSpeedKbps > 0) {
             const nowMs = Date.now();
             segmentThroughputSamplesRef.current.push({ atMs: nowMs, kbps: downloadSpeedKbps });
@@ -421,30 +434,33 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
               .filter((s) => nowMs - s.atMs <= 10_000);
           }
 
-          // Tinh jitter = |latency hien tai - latency truoc do|
+          // === JITTER = |SDT_current - SDT_previous| ===
           let jitterMs = 0;
-          if (durationMs > 0 && prevLatencyMsRef.current !== null) {
-            jitterMs = Math.abs(durationMs - prevLatencyMsRef.current);
+          if (durationMs > 0 && prevSDTMsRef.current !== null) {
+            jitterMs = Math.abs(durationMs - prevSDTMsRef.current);
           }
-          if (durationMs > 0) prevLatencyMsRef.current = durationMs;
+          if (durationMs > 0) prevSDTMsRef.current = durationMs;
 
-          // Uoc tinh RTT tu firstByteDate hoac xap xi tu download time
-          let rttMs = 0;
-          if (req?.firstByteDate && startTime > 0) {
+          // === TTFB: Accurate measurement from Performance Resource Timing API ===
+          // TTFB = responseStart - requestStart (requires Timing-Allow-Origin header)
+          let ttfbMs = 0;
+
+          // Method 1: Performance Resource Timing API (most accurate)
+          if (req?.url) {
+            ttfbMs = getTTFBFromPerformanceAPI(req.url);
+          }
+
+          // Method 2: Fallback to dash.js firstByteDate - startDate
+          if (ttfbMs === 0 && req?.firstByteDate && startTime > 0) {
             const firstByteTime = req.firstByteDate instanceof Date
               ? req.firstByteDate.getTime()
               : new Date(req.firstByteDate).getTime();
             if (firstByteTime > startTime) {
-              rttMs = Math.round(firstByteTime - startTime);
+              ttfbMs = Math.round(firstByteTime - startTime);
             }
           }
-          // Fallback: neu khong co firstByteDate, uoc tinh RTT dua tren download time
-          if (rttMs === 0 && durationMs > 0 && bytesLoaded > 0) {
-            // Phan thoi gian khong phai truyen data ~ RTT
-            rttMs = Math.round(Math.min(durationMs * 0.1, durationMs * 1024 / bytesLoaded * 2));
-          }
 
-          // Tich luy tong bytes da tai
+          // Accumulate total downloaded bytes
           totalDownloadedBytesRef.current += bytesLoaded;
           const totalDownloadedMB = Math.round(totalDownloadedBytesRef.current / 1024 / 1024 * 100) / 100;
 
@@ -452,23 +468,23 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
             ...prev,
             lastSegmentSizeKB: Math.round(sizeKB * 10) / 10,
             lastSegmentDurationMs: durationMs,
-            latencyMs: durationMs,
             downloadSpeedKbps,
             jitterMs,
-            rttMs,
+            ttfbMs,
             totalDownloadedMB,
           }));
         }
 
-        // Throttle ghi log NET — chi ghi khi co du lieu thuc (tranh de 0 vao statsPatch)
+        // Throttle NET log — only log when we have actual data
         const now = Date.now();
         if (now - lastNetLogRef.current < NET_LOG_THROTTLE_MS) return;
-        if (bytesLoaded === 0 && durationMs === 0) return; // Khong ghi log khi khong co data
+        if (bytesLoaded === 0 && durationMs === 0) return;
         lastNetLogRef.current = now;
 
         const kb = bytesLoaded > 0 ? `${(bytesLoaded / 1024).toFixed(1)} KB` : "";
-        const latency = durationMs > 0 ? ` Latency: ${durationMs}ms.` : "";
-        // statsPatch chi gom cac truong co gia tri thuc, khong ghi de 0 len statsRef
+        const sdtInfo = durationMs > 0 ? ` SDT: ${durationMs}ms.` : "";
+        const ttfbInfo = statsRef.current.ttfbMs > 0 ? ` TTFB: ${statsRef.current.ttfbMs}ms.` : "";
+
         const netPatch: Partial<StreamStats> = {};
         if (bytesLoaded > 0) {
           netPatch.lastSegmentSizeKB = Math.round((bytesLoaded / 1024) * 10) / 10;
@@ -476,29 +492,57 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         }
         if (durationMs > 0) {
           netPatch.lastSegmentDurationMs = durationMs;
-          netPatch.latencyMs = durationMs;
           netPatch.downloadSpeedKbps = (bytesLoaded * 8) / durationMs;
           netPatch.jitterMs = statsRef.current.jitterMs;
-          netPatch.rttMs = statsRef.current.rttMs;
+          netPatch.ttfbMs = statsRef.current.ttfbMs;
         }
-        addLog("NET", `Segment loaded via DASH/HTTP3.${kb ? ` Size: ${kb}.` : ""}${latency}`, netPatch);
-      } catch { /* bo qua */ }
+        addLog("NET", `Segment loaded.${kb ? ` Size: ${kb}.` : ""}${sdtInfo}${ttfbInfo}`, netPatch);
+      } catch { /* skip */ }
     };
 
-    // Su kien: loi player
+    // Event: player error
     const onError = (event: any) => {
       const msg = event?.error?.message ?? event?.error?.code ?? "Unknown error";
       addLog("ERRO", `Player error: ${msg}`);
     };
 
-    // Dang ky event listeners
+    // === STALL TRACKING: dash.js BUFFER_EMPTY / BUFFER_LOADED ===
+    // These events are more accurate than HTML5 "waiting" for academic measurement
+    const onBufferEmpty = (event: any) => {
+      if (event?.mediaType !== "video") return;
+      stallStartRef.current = Date.now();
+      stallCountRef.current += 1;
+      updateStats((prev) => ({ ...prev, stallCount: stallCountRef.current }));
+      addLog("WARN", `Stall #${stallCountRef.current} — buffer empty (BUFFER_EMPTY event)`, {
+        stallCount: stallCountRef.current,
+        stallDurationMs: stallAccumulatedMsRef.current,
+      });
+    };
+
+    const onBufferLoaded = (event: any) => {
+      if (event?.mediaType !== "video") return;
+      if (stallStartRef.current !== null) {
+        const stallDuration = Date.now() - stallStartRef.current;
+        stallAccumulatedMsRef.current += stallDuration;
+        stallStartRef.current = null;
+        updateStats((prev) => ({ ...prev, stallDurationMs: stallAccumulatedMsRef.current }));
+        addLog("SYS", `Stall #${stallCountRef.current} resolved after ${stallDuration}ms.`, {
+          stallCount: stallCountRef.current,
+          stallDurationMs: stallAccumulatedMsRef.current,
+        });
+      }
+    };
+
+    // Register event listeners
     player.on(MediaPlayer.events.MANIFEST_LOADED, onManifestLoaded);
     player.on(MediaPlayer.events.STREAM_INITIALIZED, onStreamInitialized);
     player.on(MediaPlayer.events.QUALITY_CHANGE_RENDERED, onQualityRendered);
     player.on(MediaPlayer.events.FRAGMENT_LOADING_COMPLETED, onFragmentLoaded);
     player.on(MediaPlayer.events.ERROR, onError);
+    player.on(MediaPlayer.events.BUFFER_EMPTY, onBufferEmpty);
+    player.on(MediaPlayer.events.BUFFER_LOADED, onBufferLoaded);
 
-    // Polling: cap nhat cac thong so realtime tu player va video element
+    // Polling: update realtime stats from player and video element
     const statsIntervalId = window.setInterval(() => {
       const video = videoRef.current;
       const currentPlayer = playerRef.current;
@@ -511,7 +555,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         const bufferRaw = currentPlayer.getBufferLength("video");
         const bufferSeconds = typeof bufferRaw === "number" ? bufferRaw : 0;
 
-        // FPS realtime = delta frame / delta thoi gian giua 2 lan polling
+        // FPS realtime = delta frames / delta time between polls
         let fpsLabel = "—";
         if (vq && Number.isFinite(video.currentTime)) {
           const totalFrames = vq.totalVideoFrames ?? 0;
@@ -523,7 +567,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
           frameSampleRef.current = { timeSec: nowSec, totalFrames };
         }
 
-        // Throughput realtime: uu tien trung binh cac segment trong 1s gan nhat
+        // Throughput realtime: prefer average of segments in last 1s
         let avgThroughputKbps = 0;
         const nowMs = Date.now();
         const last1sSamples = segmentThroughputSamplesRef.current
@@ -532,28 +576,33 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
 
         if (last1sSamples.length > 0) {
           avgThroughputKbps =
-            last1sSamples.reduce((sum, value) => sum + value, 0) / last1sSamples.length
-            ;
+            last1sSamples.reduce((sum, value) => sum + value, 0) / last1sSamples.length;
         } else {
-          // Fallback khi 1s vua qua khong co segment moi
           try {
             const t = currentPlayer.getAverageThroughput?.("video");
             if (typeof t === "number" && t > 0) avgThroughputKbps = t;
-          } catch { /* API khong co */ }
+          } catch { /* API not available */ }
         }
 
-        // Current time va duration
+        // Current time and duration
         const currentTime = video.currentTime ?? 0;
         const duration = video.duration ?? 0;
 
-        // Lay thong tin mang tu Network Information API
+        // Network Information API
         const conn = (navigator as any).connection;
         const connectionType = conn?.effectiveType ?? "—";
         const estimatedBandwidthMbps = typeof conn?.downlink === "number" ? conn.downlink : 0;
 
-        // Detect giao thuc HTTP thuc te tu Performance Resource Timing API
-        // nextHopProtocol = "h3" khi browser ket noi qua QUIC/HTTP3
+        // Protocol detection
         const protocolLabel = detectProtocolFromPerformance("/media");
+
+        // === REBUFFERING RATIO ===
+        // rebufferingRatio = totalStallDuration / totalPlaybackDuration
+        const totalStallMs = stallAccumulatedMsRef.current;
+        const totalPlaybackMs = currentTime * 1000;
+        const rebufferingRatio = totalPlaybackMs > 0
+          ? Math.round((totalStallMs / totalPlaybackMs) * 10000) / 10000 // 4 decimal precision
+          : 0;
 
         updateStats((prev) => ({
           ...prev,
@@ -567,19 +616,21 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
           connectionType,
           estimatedBandwidthMbps,
           protocolLabel,
+          rebufferingRatio,
         }));
-      } catch { /* player da bi huy */ }
+      } catch { /* player already destroyed */ }
     }, STATS_POLL_INTERVAL_MS);
 
     const video = videoRef.current;
+
+    // === HTML5 REBUFFER TRACKING (complementary to dash.js stall) ===
     const onPlay = () => {
       setIsPlaying(true);
-      // Ket thuc rebuffer neu dang stall
+      // End rebuffer if currently stalling
       if (rebufferStartRef.current !== null) {
         rebufferAccumulatedMsRef.current += Date.now() - rebufferStartRef.current;
         rebufferStartRef.current = null;
         updateStats((prev) => ({ ...prev, rebufferDurationMs: rebufferAccumulatedMsRef.current }));
-        // Log "resume" voi rebufferDuration da cap nhat - day la diem duy nhat co gia tri chinh xac
         addLog("SYS", `Playback resumed after rebuffer #${rebufferCountRef.current}.`, {
           rebufferCount: rebufferCountRef.current,
           rebufferDurationMs: rebufferAccumulatedMsRef.current,
@@ -590,15 +641,14 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     };
     const onPause = () => { setIsPlaying(false); addLog("SYS", "Playback paused."); };
 
-    // Phat hien rebuffer: video bi dung tang do thieu buffer
+    // Detect rebuffer: video paused due to missing buffer
     const onWaiting = () => {
       rebufferStartRef.current = Date.now();
       rebufferCountRef.current += 1;
       updateStats((prev) => ({ ...prev, rebufferCount: rebufferCountRef.current }));
-      // Truyen statsPatch tuong minh de snapshot log co rebufferCount moi nhat
-      addLog("WARN", `Rebuffering #${rebufferCountRef.current}`, {
+      addLog("WARN", `Rebuffering #${rebufferCountRef.current} (waiting event)`, {
         rebufferCount: rebufferCountRef.current,
-        rebufferDurationMs: rebufferAccumulatedMsRef.current, // duration tai THOI DIEM BAT DAU stall
+        rebufferDurationMs: rebufferAccumulatedMsRef.current,
       });
     };
 
@@ -617,7 +667,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     };
   }, [manifestUrl, syncRepresentationsAndBitrate, addLog, updateStats]);
 
-  // Ap dung kich ban mang thong qua Docker tc cua backend
+  // Apply network scenario via Docker tc
   const applyScenario = useCallback(async (scenario: NetworkScenario) => {
     const player = playerRef.current;
     if (!player) return;
@@ -639,7 +689,6 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         throw new Error(`Server returned ${response.status}`);
       }
 
-      // Thanh cong, bo gioi han player de DASH tu thich ung voi toc do mang thuc te
       setIsAutoQuality(true);
       isAutoQualityRef.current = true;
       setQualitySelectionState("auto");
@@ -652,7 +701,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     }
   }, [addLog]);
 
-  // Cho phep chon chat luong thu cong hoac chuyen ve Auto ABR
+  // Allow manual quality selection or switch to Auto ABR
   const setQualitySelection = useCallback((value: QualitySelection) => {
     const player = playerRef.current;
     if (!player) return;
@@ -668,7 +717,6 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     setIsAutoQuality(false);
     isAutoQualityRef.current = false;
     setQualitySelectionState(value);
-    // Manual mode: bo gioi han maxBitrate de nguoi dung co the ep len muc cao nhat (vd 1080p)
     player.updateSettings({
       streaming: {
         abr: {
@@ -685,7 +733,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         const rep = reps[value];
         addLog("INFO", `Quality set to ${rep.height}p @ ${formatBitrateKbps(getRepBitrateKbps(rep))}`);
       }
-    } catch { /* bo qua */ }
+    } catch { /* skip */ }
   }, [addLog]);
 
   const togglePlayPause = useCallback(() => {
@@ -694,7 +742,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     if (video.paused) video.play(); else video.pause();
   }, []);
 
-  // Dong bo scenario khi activeScenarioId thay doi
+  // Sync scenario when activeScenarioId changes
   useEffect(() => {
     const scenario = scenarioById.get(activeScenarioId);
     if (!scenario) return;

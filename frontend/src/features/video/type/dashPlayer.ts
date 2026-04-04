@@ -1,20 +1,28 @@
 /**
- * dashPlayer.ts - Kieu du lieu noi bo cho useDashPlayer hook.
+ * dashPlayer.ts - Type definitions for useDashPlayer hook.
+ *
+ * Metric naming follows academic conventions for adaptive streaming QoE research:
+ *   - SDT (Segment Download Time): time to download one segment
+ *   - TTFB (Time To First Byte): responseStart - requestStart
+ *   - Stall: playback interruption due to buffer depletion (BUFFER_EMPTY event)
+ *   - Rebuffer: HTML5 video "waiting" event (complementary measurement)
+ *   - Jitter: |SDT_current - SDT_previous|
+ *   - Rebuffering Ratio: totalStallDuration / totalPlaybackDuration
  */
 import type { Representation } from "dashjs";
 import type { RefObject } from "react";
 import type { NetworkScenario, NetworkScenarioId } from "../../../type/video";
 
-// "auto" = ABR tu dong, number = index representation cu the
+// "auto" = ABR automatic, number = specific representation index
 export type QualitySelection = "auto" | number;
 
-// Cap do cua ban ghi console log
+// Log entry severity level
 export type LogLevel = "INFO" | "WARN" | "ERRO" | "NET" | "SYS";
 
-// Mot ban ghi trong console log panel
+// A single console log entry
 export interface LogEntry {
   id: number;
-  timestamp: string; // dinh dang HH:mm:ss.cs
+  timestamp: string; // format HH:mm:ss.cs
   level: LogLevel;
   message: string;
   statsSnapshot: StreamStats;
@@ -22,51 +30,118 @@ export interface LogEntry {
   activeScenarioLabel: string;
 }
 
-// Mot ban ghi thay doi chat luong (dung cho quality log panel)
+// A quality change record (for quality log panel)
 export interface QualityLogItem {
   time: string;
   quality: string;
   bitrateKbps: number;
 }
 
-// Toan bo thong so stream lay tu dash.js va HTMLVideoElement
+/**
+ * Complete set of stream measurements from dash.js and HTMLVideoElement.
+ *
+ * Academic metric references:
+ *   [1] QoE in Adaptive Streaming – IEEE, ACM surveys
+ *   [2] QUIC vs TCP for DASH – arXiv, IEEE INFOCOM
+ */
 export interface StreamStats {
+  // ── Video Quality Metrics ──
+  /** Video Bitrate — bitrate of current representation (kbps) */
   bitrateKbps: number;
-  avgThroughputKbps: number; // throughput trung binh (kbps)
+  /** Throughput — measured average throughput (kbps) */
+  avgThroughputKbps: number;
+  /** Buffer Occupancy — current buffer level (seconds) */
   bufferSeconds: number;
+  /** Resolution label — e.g. "1920x1080" */
   resolutionLabel: string;
+  /** Frame Rate — measured FPS */
   fpsLabel: string;
+  /** Dropped Frames — cumulative dropped video frames */
   droppedFrames: number;
+  /** Total Frames — cumulative total video frames rendered */
   totalFrames: number;
+  /** Protocol — detected via Resource Timing nextHopProtocol */
   protocolLabel: string;
-  // --- Cac truong mo rong ---
-  latencyMs: number;           // do tre tai segment gan nhat (ms)
-  downloadSpeedKbps: number;   // toc do tai thuc te (kbps)
-  lastSegmentSizeKB: number;   // kich thuoc segment cuoi (KB)
-  lastSegmentDurationMs: number; // thoi gian tai segment cuoi (ms)
-  currentTime: number;         // thoi gian phat hien tai (s)
-  duration: number;            // tong thoi luong video (s)
-  codecLabel: string;          // codec dang dung
-  qualityIndex: number;        // index quality hien tai
-  qualityCount: number;        // tong so quality levels
-  // --- Thong so mang mo rong ---
-  jitterMs: number;            // bien thien latency giua cac segment (ms)
-  rttMs: number;               // round-trip time uoc tinh (ms)
-  rebufferCount: number;       // so lan video bi dung cho buffer
-  rebufferDurationMs: number;  // tong thoi gian bi stall (ms)
-  qualitySwitchCount: number;  // so lan chuyen doi quality
-  totalDownloadedMB: number;   // tong dung luong da tai (MB)
-  connectionType: string;      // loai ket noi mang (wifi/4g/ethernet)
-  estimatedBandwidthMbps: number; // bang thong uoc tinh cua trinh duyet (Mbps)
+  /** Codec — e.g. "avc1.64001f" */
+  codecLabel: string;
+  /** Quality Index — 0-based index of current quality level */
+  qualityIndex: number;
+  /** Quality Count — total number of quality levels available */
+  qualityCount: number;
+
+  // ── Network / Segment Metrics ──
+  /** Segment Download Speed — (bytesLoaded * 8) / SDT (kbps) */
+  downloadSpeedKbps: number;
+  /** Segment Size — size of most recently downloaded segment (KB) */
+  lastSegmentSizeKB: number;
+  /**
+   * Segment Download Time (SDT) — total time to download last segment (ms).
+   * Academic name: Segment Download Time.
+   * Formula: endTime - startTime of segment request.
+   */
+  lastSegmentDurationMs: number;
+  /**
+   * Time To First Byte (TTFB) — time from request start to first byte received (ms).
+   * Measured via PerformanceResourceTiming: responseStart - requestStart.
+   * Fallback: firstByteDate - startDate from dash.js.
+   */
+  ttfbMs: number;
+  /**
+   * SDT Jitter — inter-segment download time variation (ms).
+   * Formula: |SDT_current - SDT_previous|.
+   */
+  jitterMs: number;
+
+  // ── Playback Stability Metrics ──
+  /**
+   * Stall Count — number of buffer depletion events (dash.js BUFFER_EMPTY).
+   * This is the academically standard "stall event" metric.
+   */
+  stallCount: number;
+  /**
+   * Total Stall Duration — cumulative time in stalled state (ms).
+   * Measured from BUFFER_EMPTY to BUFFER_LOADED.
+   */
+  stallDurationMs: number;
+  /**
+   * Rebuffer Count — number of HTML5 video "waiting" events.
+   * Complementary to stallCount; captures browser-level buffering events.
+   */
+  rebufferCount: number;
+  /**
+   * Total Rebuffer Duration — cumulative waiting → playing time (ms).
+   */
+  rebufferDurationMs: number;
+  /**
+   * Rebuffering Ratio — totalStallDuration / totalPlaybackDuration.
+   * Standard QoE metric; lower is better. Range [0, 1].
+   */
+  rebufferingRatio: number;
+  /** Quality Switch Count — number of quality level changes */
+  qualitySwitchCount: number;
+  /** Total Downloaded — cumulative bytes downloaded (MB) */
+  totalDownloadedMB: number;
+
+  // ── Playback Position ──
+  /** Current playback time (seconds) */
+  currentTime: number;
+  /** Total media duration (seconds) */
+  duration: number;
+
+  // ── Network Context ──
+  /** Connection Type — from Network Information API (e.g. "4g", "wifi") */
+  connectionType: string;
+  /** Estimated Bandwidth — from navigator.connection.downlink (Mbps) */
+  estimatedBandwidthMbps: number;
 }
 
-// Tham so dau vao cua hook
+// Hook input parameters
 export interface UseDashPlayerArgs {
   manifestUrl: string | null | undefined;
   scenarios: readonly NetworkScenario[];
 }
 
-// Gia tri hook tra ve cho component
+// Hook return value for components
 export interface UseDashPlayerResult {
   videoRef: RefObject<HTMLVideoElement | null>;
   representations: Representation[];

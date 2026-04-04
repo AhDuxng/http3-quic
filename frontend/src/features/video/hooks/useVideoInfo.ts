@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { VideoInfo } from "../../../type/video";
 
-// Kieu tra ve ro rang cua hook - giup consumer biet chinh xac co gi
+// Explicit return type for the hook - helps consumers know exactly what is returned
 interface UseVideoInfoResult {
   videoInfo: VideoInfo | null;
   isLoading: boolean;
@@ -14,8 +14,8 @@ export function useVideoInfo(): UseVideoInfoResult {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Co che cleanup: danh dau component con active hay khong
-    // Neu component unmount truoc khi fetch xong, khong set state
+    // Cleanup mechanism: marks if the component is still active
+    // If component unmounts before fetch finishes, do not set state
     let isActive = true;
 
     async function load() {
@@ -23,7 +23,7 @@ export function useVideoInfo(): UseVideoInfoResult {
         setIsLoading(true);
         setError(null);
 
-        // Goi API backend lay metadata video
+        // Call backend API to fetch video metadata
         const response = await fetch("/api/video-info");
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: Failed to load video info`);
@@ -31,7 +31,7 @@ export function useVideoInfo(): UseVideoInfoResult {
 
         const data = (await response.json()) as VideoInfo;
 
-        // Chi cap nhat state neu component van con mount
+        // Only update state if the component is still mounted
         if (!isActive) return;
         setVideoInfo(data);
       } catch (e) {
@@ -44,11 +44,11 @@ export function useVideoInfo(): UseVideoInfoResult {
 
     load();
 
-    // Tra ve cleanup function: danh dau la inactive khi unmount
+    // Return cleanup function: mark as inactive upon unmount
     return () => {
       isActive = false;
     };
-  }, []); // Chi chay mot lan khi mount
+  }, []); // Only run once on mount
 
   return { videoInfo, isLoading, error };
 }
