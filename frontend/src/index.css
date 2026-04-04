@@ -1,7 +1,6 @@
 /*
- * index.css - Global CSS for the entire application.
+ * index.css — CSS toan cuc cho ung dung.
  * Import Tailwind CSS utility classes.
- * Dinh nghia cac bien co ban va reset toan cuc.
  */
 
 /* Import Tailwind: base reset, components, utilities */
@@ -9,20 +8,20 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Bien CSS goc: font va cach hien chu */
+/* Bien CSS goc: font va hien thi chu */
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  /* Toi uu hoa hien thi chu */
+  /* Toi uu hien thi chu */
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Reset body: chiem toan man hinh, khong co margin */
+/* Reset body: chiem toan man hinh, khong margin */
 body {
   margin: 0;
   min-width: 320px;
