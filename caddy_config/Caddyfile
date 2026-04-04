@@ -16,11 +16,15 @@ video.duxng.io.vn {
     }
 
     handle /media/* {
+        header Timing-Allow-Origin *
+        header Access-Control-Allow-Origin *
         root * /srv
         file_server
     }
 
     handle /media-2/* {
+        header Timing-Allow-Origin *
+        header Access-Control-Allow-Origin *
         root * /srv
         file_server
     }

@@ -1,44 +1,46 @@
-# Cau hinh Caddy cho moi truong PRODUCTION
-# Ho tro HTTP/1.1, HTTP/2 va HTTP/3 (QUIC) voi TLS tu dong qua Let's Encrypt
+# Caddy configuration for PRODUCTION environment
+# Supports HTTP/1.1, HTTP/2 and HTTP/3 (QUIC) with automatic TLS via Let's Encrypt
 
-# Cai dat global: bat tat ca giao thuc bao gom QUIC/HTTP3
+# Global settings: enable all protocols including QUIC/HTTP3
 {
     servers {
         protocols h1 h2 h3
     }
 }
 
-# $DOMAIN nen la domain that (vi du: video.example.com)
-# -> Caddy se tu dong lay cert Let's Encrypt -> HTTPS -> HTTP/3 hoat dong
-# QUAN TRONG: Neu chi co IP, dung CANH BAO: Let's Encrypt KHONG cap cert cho IP
-# -> Trong truong hop IP: dung Caddyfile (dev) voi `tls internal`
+# $DOMAIN should be a real domain (e.g. video.example.com)
+# -> Caddy will automatically fetch Let's Encrypt certificates -> HTTPS -> HTTP/3 works
+# IMPORTANT: If using an IP address, WARNING: Let's Encrypt DOES NOT issue certs for IPs
+# -> In case of IP: use Caddyfile (dev) with `tls internal`
 {$DOMAIN} {
-    # Nen response de giam bandwidth
+    # Encode responses to reduce bandwidth
     encode zstd gzip
 
-    # CORS headers cho tat ca response
+    # CORS headers for all responses
     header Access-Control-Allow-Origin *
     header Access-Control-Allow-Methods "GET, POST, PUT, OPTIONS"
     header Access-Control-Allow-Headers "Content-Type, Authorization"
 
-    # Serve file media tinh (video chunks .m4s, manifest .mpd)
+    # Serve static media files (video chunks .m4s, manifest .mpd)
     handle /media/* {
+        header Timing-Allow-Origin *
         root * /srv
         file_server
     }
 
-    # Serve file video MP4 chia theo bitrate
+    # Serve MP4 files categorized by bitrate
     handle /media-2/* {
+        header Timing-Allow-Origin *
         root * /srv
         file_server
     }
 
-    # Proxy API request den backend container
+    # Proxy API requests to backend container
     handle /api/* {
         reverse_proxy backend:3000
     }
 
-    # Serve frontend SPA (fallback ve index.html cho client-side routing)
+    # Serve frontend SPA (fallback to index.html for client-side routing)
     handle /* {
         root * /srv/frontend
         try_files {path} /index.html

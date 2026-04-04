@@ -1,6 +1,6 @@
 FROM caddy:2.8-alpine
 
-# Cai iproute2 de co lenh `tc` (traffic control / netem)
-# Backend se goi `docker exec caddy_server tc ...` de gia lap dieu kien mang THUC TE
-# Tc chay tren container nay vi Caddy la noi phuc vu media truc tiep cho browser
+# Install iproute2 to have the `tc` command (traffic control / netem)
+# Backend will call `docker exec caddy_server tc ...` to simulate ACTUAL network conditions
+# tc runs on this container because Caddy serves media directly to the browser
 RUN apk add --no-cache iproute2
