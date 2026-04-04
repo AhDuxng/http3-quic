@@ -1,5 +1,5 @@
-// VideoPlayer.tsx - Component chinh hien thi DASH player va cac panel dieu khien.
-// Bo cuc doc: [Video | Sidebar] phia tren, [Stream Telemetry card] phia duoi.
+// VideoPlayer.tsx - Main component displaying DASH player and control panels.
+// Layout: [Video | Sidebar] on top, [Stream Telemetry card] at the bottom.
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState, useEffect } from "react";
 import { FaPlay, FaWifi, FaCog } from "react-icons/fa";
 import { MdHighQuality } from "react-icons/md";
@@ -9,14 +9,14 @@ import { NetworkSimulationPanel } from "./NetworkSimulationPanel";
 import { ConsoleLogsPanel } from "./ConsoleLogsPanel";
 import { StreamTelemetryCard } from "./StreamTelemetryCard";
 
-// Props component
+// Component props
 interface VideoPlayerProps {
   manifestUrl: string;
-  // Callback de App.jsx nhan giao thuc HTTP thuc te dang duoc dung
+  // Callback for App.jsx to receive the actual HTTP protocol being used
   onProtocolChange?: (protocol: string) => void;
 }
 
-// Handle de App.jsx goi reset tu ben ngoai qua ref
+// Handle for App.jsx to call reset from outside via ref
 export interface VideoPlayerHandle {
   reset: () => void;
 }
@@ -29,22 +29,22 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       logs, applyScenario, setQualitySelection, togglePlayPause, resetStats,
     } = useDashPlayer({ manifestUrl, scenarios: NETWORK_SCENARIOS });
 
-    // Expose resetStats cho parent (App.jsx) qua ref
+    // Expose resetStats to parent (App.jsx) via ref
     useImperativeHandle(ref, () => ({ reset: resetStats }), [resetStats]);
 
-    // Notify parent khi protocolLabel thay doi
+    // Notify parent when protocolLabel changes
     useEffect(() => {
       if (onProtocolChange && stats.protocolLabel) {
         onProtocolChange(stats.protocolLabel);
       }
     }, [stats.protocolLabel, onProtocolChange]);
 
-    // UI-only state: bo loc log, che do man hinh
+    // UI-only state: log filter, interface modes
     const [isManualMode, setIsManualMode] = useState(false);
     const [showQualityMenu, setShowQualityMenu] = useState(false);
     const qualityMenuRef = useRef<HTMLDivElement>(null);
 
-    // Dong menu khi click ra ngoai
+    // Close menu when clicking outside
     useEffect(() => {
       function handleClickOutside(event: MouseEvent) {
         if (qualityMenuRef.current && !qualityMenuRef.current.contains(event.target as Node)) {
@@ -55,7 +55,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    // Tim kich ban dang active de hien thi label
+    // Find active scenario for label display
     const activeScenario = useMemo(
       () => NETWORK_SCENARIOS.find((s) => s.id === activeScenarioId) ?? {
         id: "custom", label: "Custom Settings", speedLabel: "No limit", maxBitrateKbps: null, description: "Custom"
@@ -63,7 +63,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       [activeScenarioId],
     );
 
-    // Profile hien thi trong overlay video
+    // Profile displayed in video overlay
     const profileLabel = isAutoQuality
       ? "Auto"
       : representations[qualitySelection as number]?.height
@@ -73,13 +73,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     return (
       <div className="flex flex-col gap-4 w-full">
 
-        {/* ===== HANG TREN: Video + Sidebar ===== */}
+        {/* ===== TOP ROW: Video + Sidebar ===== */}
         <div className="flex flex-col lg:flex-row gap-4 w-full">
 
-          {/* COT TRAI: Video */}
+          {/* LEFT COLUMN: Video */}
           <div className="flex flex-col flex-1 min-w-0">
 
-            {/* Khu vuc video den */}
+            {/* Black video area */}
             <div className="relative bg-black rounded-lg overflow-hidden w-full group">
               <video
                 ref={videoRef}
@@ -89,7 +89,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 onClick={togglePlayPause}
               />
 
-              {/* Badge giao thuc - goc tren trai - hien thi protocol thuc te tu Performance API */}
+              {/* Protocol badge - top left - real protocol from Performance API */}
               <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/70 rounded px-2.5 py-1">
                 <FaWifi className={`w-3 h-3 ${
                   stats.protocolLabel.includes("h3") || stats.protocolLabel.includes("QUIC")
@@ -103,14 +103,14 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 </span>
               </div>
 
-              {/* Stats overlay - goc tren phai */}
+              {/* Stats overlay - top right */}
               <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/70 rounded px-2.5 py-1">
                 <span className="text-green-400 text-[11px] font-mono font-semibold">
                   {stats.resolutionLabel} @ {formatBitrateKbps(stats.bitrateKbps)}
                 </span>
               </div>
 
-              {/* Overlay play khi video dang pause */}
+              {/* Play overlay when video is paused */}
               {!isPlaying && (
                 <button
                   type="button"
@@ -124,7 +124,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 </button>
               )}
 
-              {/* Overlay thong tin stream - phia duoi */}
+              {/* Stream info overlay - bottom */}
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-3 pointer-events-none">
                 <div className="flex items-end justify-between">
                   <span className="text-white text-xs font-mono opacity-90">
@@ -136,7 +136,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 </div>
               </div>
 
-              {/* Nut 3 cham canh nut phong to - Quality Menu */}
+              {/* 3-dot button next to fullscreen - Quality Menu */}
               <div ref={qualityMenuRef} className="absolute bottom-12 right-2" style={{ zIndex: 40 }}>
                 <button
                   type="button"
@@ -218,9 +218,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               </div>
             </div>
           </div>
-          {/* END COT TRAI */}
+          {/* END LEFT COLUMN */}
 
-          {/* COT PHAI: Sidebar */}
+          {/* RIGHT COLUMN: Sidebar */}
           <div className="w-full lg:w-80 shrink-0 flex flex-col gap-4">
             <NetworkSimulationPanel
               stats={stats}
@@ -243,9 +243,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             />
           </div>
         </div>
-        {/* END HANG TREN */}
+        {/* END TOP ROW */}
 
-        {/* ===== CARD TELEMETRY - fullwidth phia duoi ===== */}
+        {/* ===== TELEMETRY CARD - full width at bottom ===== */}
         <StreamTelemetryCard stats={stats} isPlaying={isPlaying} />
       </div>
     );

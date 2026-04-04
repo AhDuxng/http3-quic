@@ -31,7 +31,7 @@ export function NetworkSimulationPanel({
   const [customNet, setCustomNet] = useState({ bitrate: "", delay: "", loss: "" });
   const [isCustomExpanded, setIsCustomExpanded] = useState(false);
 
-  // Xy ly ap dung kich ban mang Custom
+  // Handle applying Custom network scenario
   const applyCustomNet = () => {
     applyScenario({
       id: "custom" as any,
@@ -55,7 +55,7 @@ export function NetworkSimulationPanel({
             NETWORK SIMULATION
           </span>
         </div>
-        {/* Toggle giua Auto (scenario) va Manual (quality dropdown) */}
+        {/* Toggle between Auto (scenario) and Manual (quality dropdown) */}
         <button
           onClick={() => setIsManualMode((v) => !v)}
           className="text-[10px] font-semibold text-blue-500 hover:text-blue-700 transition-colors"
@@ -65,7 +65,7 @@ export function NetworkSimulationPanel({
       </div>
 
       {isManualMode ? (
-        /* Che do Manual: chon chat luong thu cong */
+        /* Manual mode: manually select quality */
         <div className="p-3">
           <select
             value={qualitySelection}
@@ -94,7 +94,7 @@ export function NetworkSimulationPanel({
           </p>
         </div>
       ) : (
-        /* Che do Auto: danh sach kich ban mang */
+        /* Auto mode: list of network scenarios */
         <div className="divide-y divide-slate-50">
           {NETWORK_SCENARIOS.map((scenario) => {
             const Icon = SCENARIO_ICONS[scenario.id];
@@ -182,7 +182,7 @@ export function NetworkSimulationPanel({
                 }`}
               >
                 <FaCheck className="w-3 h-3" />
-                Áp dụng
+                Apply
               </button>
             </div>
           )}

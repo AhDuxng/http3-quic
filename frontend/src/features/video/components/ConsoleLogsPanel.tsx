@@ -47,13 +47,24 @@ export function ConsoleLogsPanel({
     );
   }, [logs, logFilter]);
 
+  /**
+   * Generate CSV with academically correct column names.
+   *
+   * Column naming conventions follow adaptive streaming QoE literature:
+   *   SDT = Segment Download Time
+   *   TTFB = Time To First Byte
+   *   Stall = buffer depletion event (BUFFER_EMPTY)
+   *   Rebuffer = HTML5 waiting event
+   */
   const generateFullLogCSV = () => {
     const header = [
       "Timestamp", "Level", "Message", "Resolution", "Bitrate_kbps",
       "Throughput_kbps", "Buffer_s", "FPS", "DroppedFrames", "TotalFrames",
-      "Latency_ms", "Jitter_ms", "RTT_ms", "DownloadSpeed_kbps",
-      "SegmentSize_KB", "SegmentDuration_ms", "TotalDownloaded_MB",
-      "RebufferCount", "RebufferDuration_ms", "QualitySwitchCount",
+      "TTFB_ms", "Jitter_ms", "SegmentDownloadTime_ms", "DownloadSpeed_kbps",
+      "SegmentSize_KB", "TotalDownloaded_MB",
+      "StallCount", "StallDuration_ms",
+      "RebufferCount", "RebufferDuration_ms", "RebufferingRatio",
+      "QualitySwitchCount",
       "CurrentTime_s", "Duration_s", "Codec", "QualityIndex",
       "QualityCount", "Protocol", "ConnectionType",
       "EstimatedBandwidth_Mbps", "IsAutoQuality", "ActiveScenario",
@@ -65,10 +76,13 @@ export function ConsoleLogsPanel({
         l.timestamp, l.level, `"${l.message.replace(/"/g, '""')}"`,
         snap.resolutionLabel, snap.bitrateKbps, snap.avgThroughputKbps,
         snap.bufferSeconds.toFixed(2), snap.fpsLabel, snap.droppedFrames,
-        snap.totalFrames, snap.latencyMs, snap.jitterMs, snap.rttMs,
-        snap.downloadSpeedKbps, snap.lastSegmentSizeKB,
-        snap.lastSegmentDurationMs, snap.totalDownloadedMB.toFixed(2),
-        snap.rebufferCount, snap.rebufferDurationMs, snap.qualitySwitchCount,
+        snap.totalFrames, snap.ttfbMs.toFixed(2), snap.jitterMs.toFixed(2),
+        snap.lastSegmentDurationMs, snap.downloadSpeedKbps.toFixed(2),
+        snap.lastSegmentSizeKB.toFixed(1), snap.totalDownloadedMB.toFixed(2),
+        snap.stallCount, snap.stallDurationMs,
+        snap.rebufferCount, snap.rebufferDurationMs,
+        snap.rebufferingRatio.toFixed(4),
+        snap.qualitySwitchCount,
         snap.currentTime.toFixed(2), snap.duration.toFixed(2),
         snap.codecLabel, snap.qualityIndex, snap.qualityCount,
         snap.protocolLabel, snap.connectionType, snap.estimatedBandwidthMbps,
@@ -88,31 +102,37 @@ export function ConsoleLogsPanel({
       separator,
       "",
       "── CURRENT STREAM STATS ──",
-      `  Resolution:        ${stats.resolutionLabel}`,
-      `  Bitrate:           ${formatBitrateKbps(stats.bitrateKbps)}`,
-      `  Throughput:        ${formatBitrateKbps(stats.avgThroughputKbps)}`,
-      `  Buffer:            ${stats.bufferSeconds.toFixed(2)} s`,
-      `  FPS:               ${stats.fpsLabel}`,
-      `  Dropped Frames:    ${stats.droppedFrames}`,
-      `  Total Frames:      ${stats.totalFrames}`,
-      `  Protocol:          ${stats.protocolLabel}`,
-      `  Codec:             ${stats.codecLabel}`,
-      `  Quality Level:     ${stats.qualityIndex + 1} / ${stats.qualityCount}`,
-      `  Latency:           ${stats.latencyMs} ms`,
-      `  Jitter:            ${stats.jitterMs} ms`,
-      `  RTT (est.):        ${stats.rttMs} ms`,
-      `  Download Speed:    ${formatBitrateKbps(stats.downloadSpeedKbps)}`,
-      `  Last Segment Size: ${stats.lastSegmentSizeKB.toFixed(1)} KB`,
-      `  Last Seg Duration: ${stats.lastSegmentDurationMs} ms`,
-      `  Total Downloaded:  ${stats.totalDownloadedMB.toFixed(2)} MB`,
-      `  Rebuffer Count:    ${stats.rebufferCount}`,
-      `  Rebuffer Duration: ${(stats.rebufferDurationMs / 1000).toFixed(2)} s`,
-      `  Quality Switches:  ${stats.qualitySwitchCount}`,
-      `  Playback Position: ${formatTime(stats.currentTime)} / ${formatTime(stats.duration)}`,
-      `  Quality Mode:      ${isAutoQuality ? "Auto ABR" : "Manual"}`,
-      `  Network Scenario:  ${activeScenario.label} (${activeScenario.speedLabel})`,
-      `  Connection Type:   ${stats.connectionType}`,
-      `  Est. Bandwidth:    ${stats.estimatedBandwidthMbps} Mbps`,
+      `  Resolution:          ${stats.resolutionLabel}`,
+      `  Bitrate:             ${formatBitrateKbps(stats.bitrateKbps)}`,
+      `  Throughput:          ${formatBitrateKbps(stats.avgThroughputKbps)}`,
+      `  Buffer Occupancy:    ${stats.bufferSeconds.toFixed(2)} s`,
+      `  FPS:                 ${stats.fpsLabel}`,
+      `  Dropped Frames:      ${stats.droppedFrames}`,
+      `  Total Frames:        ${stats.totalFrames}`,
+      `  Protocol:            ${stats.protocolLabel}`,
+      `  Codec:               ${stats.codecLabel}`,
+      `  Quality Level:       ${stats.qualityIndex + 1} / ${stats.qualityCount}`,
+      "",
+      "── NETWORK METRICS ──",
+      `  TTFB:                ${stats.ttfbMs.toFixed(2)} ms`,
+      `  Jitter (SDT):        ${stats.jitterMs.toFixed(2)} ms`,
+      `  Segment DL Time:     ${stats.lastSegmentDurationMs} ms`,
+      `  Download Speed:      ${formatBitrateKbps(stats.downloadSpeedKbps)}`,
+      `  Last Segment Size:   ${stats.lastSegmentSizeKB.toFixed(1)} KB`,
+      `  Total Downloaded:    ${stats.totalDownloadedMB.toFixed(2)} MB`,
+      "",
+      "── PLAYBACK STABILITY ──",
+      `  Stall Count:         ${stats.stallCount} (BUFFER_EMPTY events)`,
+      `  Stall Duration:      ${(stats.stallDurationMs / 1000).toFixed(3)} s`,
+      `  Rebuffer Count:      ${stats.rebufferCount} (waiting events)`,
+      `  Rebuffer Duration:   ${(stats.rebufferDurationMs / 1000).toFixed(3)} s`,
+      `  Rebuffering Ratio:   ${(stats.rebufferingRatio * 100).toFixed(2)}%`,
+      `  Quality Switches:    ${stats.qualitySwitchCount}`,
+      `  Playback Position:   ${formatTime(stats.currentTime)} / ${formatTime(stats.duration)}`,
+      `  Quality Mode:        ${isAutoQuality ? "Auto ABR" : "Manual"}`,
+      `  Network Scenario:    ${activeScenario.label} (${activeScenario.speedLabel})`,
+      `  Connection Type:     ${stats.connectionType}`,
+      `  Est. Bandwidth:      ${stats.estimatedBandwidthMbps} Mbps`,
       "",
       "── AVAILABLE QUALITY LEVELS ──",
       ...representations.map((rep, i) => {
@@ -189,7 +209,7 @@ export function ConsoleLogsPanel({
         </div>
       </div>
 
-      {/* Danh sach log - cuon doc */}
+      {/* Log list - vertical scroll */}
       <div className="flex-1 overflow-y-auto min-h-0 divide-y divide-slate-50">
         {filteredLogs.length === 0 ? (
           <p className="text-center text-slate-400 text-xs py-6">No logs yet.</p>
@@ -219,7 +239,7 @@ export function ConsoleLogsPanel({
         )}
       </div>
 
-      {/* Thanh loc log */}
+      {/* Log filter bar */}
       <div className="shrink-0 px-3 py-2 border-t border-slate-100">
         <div className="flex items-center gap-2 bg-slate-50 rounded px-2.5 py-1.5">
           <FaSearch className="text-slate-300 w-3 h-3 shrink-0" />
