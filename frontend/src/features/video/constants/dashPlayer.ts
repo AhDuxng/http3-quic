@@ -1,9 +1,6 @@
 // dashPlayer.ts — Hang so cho useDashPlayer hook
 import type { StreamStats } from "../type/dashPlayer";
 
-// So dong log toi da trong console panel
-export const MAX_LOG_ENTRIES = 200;
-
 // Chu ky polling stats tu dash.js (ms) — cap nhat moi 1 giay
 export const STATS_POLL_INTERVAL_MS = 1000;
 

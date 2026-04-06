@@ -2,6 +2,7 @@
 //
 // Ket hop useStreamMetrics + useStallTracker.
 // Chi giu: player init, events, cleanup, scenario, quality control.
+// Unlimited logging + auto-replay support.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MediaPlayer } from "dashjs";
@@ -11,11 +12,14 @@ import type {
   QualitySelection, StreamStats, LogEntry, LogLevel,
   UseDashPlayerArgs, UseDashPlayerResult,
 } from "../type/dashPlayer";
-import { MAX_LOG_ENTRIES, STATS_POLL_INTERVAL_MS, NET_LOG_THROTTLE_MS, DEFAULT_STATS } from "../constants/dashPlayer";
+import { STATS_POLL_INTERVAL_MS, NET_LOG_THROTTLE_MS, DEFAULT_STATS } from "../constants/dashPlayer";
 import { formatTimestamp } from "../utils/formatters";
 import { formatBitrateKbps } from "../utils/formatters";
 import { getRepBitrateKbps, getResolutionLabel, useStreamMetrics } from "./useStreamMetrics";
 import { useStallTracker } from "./useStallTracker";
+
+/** Default so lan phat lai (0 = khong gioi han, N = phat N lan roi dung) */
+const DEFAULT_REPLAY_COUNT = 1;
 
 export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   const { manifestUrl, scenarios } = args;
@@ -36,6 +40,19 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   const isAutoQualityRef = useRef(true);
   const activeScenarioIdRef = useRef<NetworkScenarioId>(activeScenarioId);
 
+  // === Replay state ===
+  const [replayCount, setReplayCount] = useState(DEFAULT_REPLAY_COUNT);
+  const [currentReplay, setCurrentReplay] = useState(1);
+  const [isReplayDone, setIsReplayDone] = useState(false);
+  const replayCountRef = useRef(replayCount);
+  const currentReplayRef = useRef(1);
+  const isReplayDoneRef = useRef(false);
+
+  // Sync refs
+  useEffect(() => { replayCountRef.current = replayCount; }, [replayCount]);
+  useEffect(() => { currentReplayRef.current = currentReplay; }, [currentReplay]);
+  useEffect(() => { isReplayDoneRef.current = isReplayDone; }, [isReplayDone]);
+
   // Map id -> scenario, O(1) lookup
   const scenarioById = useMemo(() => {
     const map = new Map<NetworkScenarioId, NetworkScenario>();
@@ -44,6 +61,8 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   }, [scenarios]);
 
   const updateStats = useCallback((updater: (prev: StreamStats) => StreamStats) => {
+    // Khi replay da hoan tat, khong cap nhat stats nua
+    if (isReplayDoneRef.current) return;
     const next = updater(statsRef.current);
     statsRef.current = next;
     setStats(next);
@@ -53,8 +72,11 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   const metrics = useStreamMetrics({ updateStats, statsRef });
   const stall = useStallTracker({ updateStats });
 
-  // Them log vao console panel
+  // Them log vao console panel — KHONG GIOI HAN
   const addLog = useCallback((level: LogLevel, message: string, patch?: Partial<StreamStats>) => {
+    // Khi replay done, khong ghi log nua
+    if (isReplayDoneRef.current) return;
+
     const label = scenarioById.get(activeScenarioIdRef.current)?.label ?? "—";
     const entry: LogEntry = {
       id: ++logIdRef.current, timestamp: formatTimestamp(new Date()),
@@ -62,7 +84,8 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       statsSnapshot: { ...statsRef.current, ...(patch ?? {}) },
       isAutoQuality: isAutoQualityRef.current, activeScenarioLabel: label,
     };
-    setLogs((prev) => [entry, ...prev].slice(0, MAX_LOG_ENTRIES));
+    // Unlimited: khong slice, append truc tiep
+    setLogs((prev) => [entry, ...prev]);
   }, [scenarioById]);
 
   // Dong bo representation va bitrate/resolution tu player
@@ -92,6 +115,10 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     stall.reset();
     logIdRef.current = 0;
     lastNetLogRef.current = 0;
+    setCurrentReplay(1);
+    currentReplayRef.current = 1;
+    setIsReplayDone(false);
+    isReplayDoneRef.current = false;
   }, [metrics, stall]);
 
   useEffect(() => { isAutoQualityRef.current = isAutoQuality; }, [isAutoQuality]);
@@ -189,6 +216,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       const v = videoRef.current;
       const p = playerRef.current;
       if (!v || !p) return;
+      if (isReplayDoneRef.current) return; // Dung polling khi replay xong
       syncReps();
       metrics.pollStats(v, p, stall.getSnapshot().stallAccumulatedMs);
     }, STATS_POLL_INTERVAL_MS);
@@ -198,15 +226,54 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     const onPause = () => { setIsPlaying(false); addLog("SYS", "Playback paused."); };
     const onWaiting = () => addLog("WARN", "Buffering (waiting event)");
 
+    // === AUTO-REPLAY: xu ly khi video ket thuc ===
+    const onEnded = () => {
+      const maxReplays = replayCountRef.current;
+      const curReplay = currentReplayRef.current;
+
+      if (maxReplays === 0) {
+        // 0 = Unlimited replays
+        const nextReplay = curReplay + 1;
+        currentReplayRef.current = nextReplay;
+        setCurrentReplay(nextReplay);
+        addLog("SYS", `▶ Replay #${nextReplay} starting (unlimited mode)...`);
+        if (video) {
+          video.currentTime = 0;
+          video.play().catch(() => {});
+        }
+      } else if (curReplay < maxReplays) {
+        // Con luot replay
+        const nextReplay = curReplay + 1;
+        currentReplayRef.current = nextReplay;
+        setCurrentReplay(nextReplay);
+        addLog("SYS", `▶ Replay #${nextReplay}/${maxReplays} starting...`);
+        if (video) {
+          video.currentTime = 0;
+          video.play().catch(() => {});
+        }
+      } else {
+        // Het luot replay — DUNG VIDEO VA LOG
+        addLog("SYS", `✅ All ${maxReplays} replay(s) completed. Stopping video and logging.`);
+        isReplayDoneRef.current = true;
+        setIsReplayDone(true);
+        setIsPlaying(false);
+        if (video) {
+          video.pause();
+        }
+      }
+    };
+
     video?.addEventListener("play", onPlay);
     video?.addEventListener("pause", onPause);
     video?.addEventListener("waiting", onWaiting);
+    video?.addEventListener("ended", onEnded);
 
     return () => {
       window.clearInterval(pollId);
       video?.removeEventListener("play", onPlay);
       video?.removeEventListener("pause", onPause);
       video?.removeEventListener("waiting", onWaiting);
+      video?.removeEventListener("ended", onEnded);
       try { player.destroy(); } finally { playerRef.current = null; }
     };
   }, [manifestUrl, syncReps, addLog, updateStats, metrics, stall]);
@@ -259,6 +326,8 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     videoRef, representations, isPlaying, stats, activeScenarioId,
     qualitySelection, isAutoQuality, logs,
     applyScenario, setQualitySelection, togglePlayPause, resetStats,
+    // Replay control
+    replayCount, currentReplay, isReplayDone, setReplayCount,
   };
 }
 

@@ -97,4 +97,9 @@ export interface UseDashPlayerResult {
   setQualitySelection: (value: QualitySelection) => void;
   togglePlayPause: () => void;
   resetStats: () => void;
+  // Replay control
+  replayCount: number;
+  currentReplay: number;
+  isReplayDone: boolean;
+  setReplayCount: (count: number) => void;
 }
