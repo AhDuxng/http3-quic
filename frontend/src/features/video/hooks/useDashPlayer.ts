@@ -119,6 +119,11 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     currentReplayRef.current = 1;
     setIsReplayDone(false);
     isReplayDoneRef.current = false;
+    
+    if (playerRef.current) {
+      playerRef.current.seek(0);
+      playerRef.current.play();
+    }
   }, [metrics, stall]);
 
   useEffect(() => { isAutoQualityRef.current = isAutoQuality; }, [isAutoQuality]);
@@ -236,29 +241,29 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         const nextReplay = curReplay + 1;
         currentReplayRef.current = nextReplay;
         setCurrentReplay(nextReplay);
-        addLog("SYS", `▶ Replay #${nextReplay} starting (unlimited mode)...`);
-        if (video) {
-          video.currentTime = 0;
-          video.play().catch(() => {});
+        addLog("SYS", `Replay #${nextReplay} starting (unlimited mode)...`);
+        if (playerRef.current) {
+          playerRef.current.seek(0);
+          playerRef.current.play();
         }
       } else if (curReplay < maxReplays) {
         // Con luot replay
         const nextReplay = curReplay + 1;
         currentReplayRef.current = nextReplay;
         setCurrentReplay(nextReplay);
-        addLog("SYS", `▶ Replay #${nextReplay}/${maxReplays} starting...`);
-        if (video) {
-          video.currentTime = 0;
-          video.play().catch(() => {});
+        addLog("SYS", `Replay #${nextReplay}/${maxReplays} starting...`);
+        if (playerRef.current) {
+          playerRef.current.seek(0);
+          playerRef.current.play();
         }
       } else {
         // Het luot replay — DUNG VIDEO VA LOG
-        addLog("SYS", `✅ All ${maxReplays} replay(s) completed. Stopping video and logging.`);
+        addLog("SYS", `All ${maxReplays} replay(s) completed. Stopping video and logging.`);
         isReplayDoneRef.current = true;
         setIsReplayDone(true);
         setIsPlaying(false);
-        if (video) {
-          video.pause();
+        if (playerRef.current) {
+          playerRef.current.pause();
         }
       }
     };
@@ -266,14 +271,14 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     video?.addEventListener("play", onPlay);
     video?.addEventListener("pause", onPause);
     video?.addEventListener("waiting", onWaiting);
-    video?.addEventListener("ended", onEnded);
+    player.on(MediaPlayer.events.PLAYBACK_ENDED, onEnded);
 
     return () => {
       window.clearInterval(pollId);
       video?.removeEventListener("play", onPlay);
       video?.removeEventListener("pause", onPause);
       video?.removeEventListener("waiting", onWaiting);
-      video?.removeEventListener("ended", onEnded);
+      player.off(MediaPlayer.events.PLAYBACK_ENDED, onEnded);
       try { player.destroy(); } finally { playerRef.current = null; }
     };
   }, [manifestUrl, syncReps, addLog, updateStats, metrics, stall]);
