@@ -42,7 +42,7 @@ CurrentTime_s, Duration_s, IsAutoQuality, ActiveScenario
 |---|---|---|---|---|
 | Bitrate_kbps | Video Bitrate | kbps | dash.js `representation.bitrateInKbit` | ✅ Truc tiep |
 | Resolution | Video Resolution | `WxH` | dash.js `representation.width/height` | ✅ Truc tiep |
-| Throughput_kbps | Throughput | kbps | Trung binh mau segment 1s / fallback `player.getAverageThroughput()` | ✅ Cao |
+| Throughput_kbps | Throughput | kbps | Trung binh trong so 10s (tong bits / tong SDT) / fallback `player.getAverageThroughput()` | ✅ Cao |
 | Buffer_s | Buffer Occupancy | giay | `player.getBufferLength("video")` | ✅ Truc tiep |
 | FPS | Frame Rate | fps (so) | `delta(totalVideoFrames) / delta(currentTime)` | ✅ Tinh toan |
 
@@ -83,7 +83,7 @@ CurrentTime_s, Duration_s, IsAutoQuality, ActiveScenario
 
 ```
 DownloadSpeed_kbps  = (bytesLoaded × 8) / SDT_ms
-Throughput_kbps     = average(segment speeds trong 1 giay gan nhat)
+Throughput_kbps     = tong bits cac segment trong 10 giay gan nhat / tong SDT cac segment do
 Jitter_ms           = |SDT_i − SDT_{i−1}|
 TTFB_ms             = responseStart − requestStart
 RebufferingRatio    = totalStallDuration_ms / (currentTime_s × 1000)

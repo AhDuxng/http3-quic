@@ -27,7 +27,7 @@ interface UseStreamMetricsArgs {
 
 export function useStreamMetrics({ updateStats, statsRef }: UseStreamMetricsArgs) {
   // Mau throughput gan day (cua so truot 10s)
-  const segmentSamplesRef = useRef<Array<{ atMs: number; kbps: number }>>([]);
+  const segmentSamplesRef = useRef<Array<{ atMs: number; bits: number; durationMs: number; kbps: number }>>([]);
   // SDT truoc do — de tinh jitter
   const prevSDTRef = useRef<number | null>(null);
   // Dem so lan chuyen quality
@@ -101,7 +101,12 @@ export function useStreamMetrics({ updateStats, statsRef }: UseStreamMetricsArgs
     // Luu mau throughput
     if (downloadSpeedKbps > 0) {
       const nowMs = Date.now();
-      segmentSamplesRef.current.push({ atMs: nowMs, kbps: downloadSpeedKbps });
+      segmentSamplesRef.current.push({
+        atMs: nowMs,
+        bits: bytesLoaded * 8,
+        durationMs,
+        kbps: downloadSpeedKbps,
+      });
       segmentSamplesRef.current = segmentSamplesRef.current.filter((s) => nowMs - s.atMs <= 10_000);
     }
 
@@ -163,15 +168,16 @@ export function useStreamMetrics({ updateStats, statsRef }: UseStreamMetricsArgs
         frameSampleRef.current = { timeSec: nowSec, totalFrames };
       }
 
-      // Throughput trung binh tu mau trong 1s gan nhat
+      // Throughput trung binh trong cua so truot 10s
       let avgThroughputKbps = 0;
       const nowMs = Date.now();
       const recentSamples = segmentSamplesRef.current
-        .filter((s) => nowMs - s.atMs <= 1000)
-        .map((s) => s.kbps);
+        .filter((s) => nowMs - s.atMs <= 10_000);
 
       if (recentSamples.length > 0) {
-        avgThroughputKbps = recentSamples.reduce((a, b) => a + b, 0) / recentSamples.length;
+        const totalBits = recentSamples.reduce((sum, s) => sum + s.bits, 0);
+        const totalDurationMs = recentSamples.reduce((sum, s) => sum + s.durationMs, 0);
+        avgThroughputKbps = totalDurationMs > 0 ? totalBits / totalDurationMs : 0;
       } else {
         try {
           const t = player.getAverageThroughput?.("video");

@@ -174,6 +174,11 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
 
     const onFragmentLoaded = (e: any) => {
       try {
+        const req = e?.request;
+        if (req?.mediaType && req.mediaType !== "video") return;
+        const reqType = String(req?.type ?? "").toLowerCase();
+        if (reqType && !reqType.includes("media")) return;
+
         const { bytesLoaded, durationMs } = metrics.processSegment(e?.request, e);
         const now = Date.now();
         if (now - lastNetLogRef.current < NET_LOG_THROTTLE_MS) return;

@@ -44,7 +44,7 @@ He thong su dung "per-log snapshots" — moi log entry chua toan bo metric tai t
 |---|---|---|
 | `Bitrate_kbps` | kbps | dash.js representation `bitrateInKbit`/`bandwidth` |
 | `Resolution` | `WxH` | dash.js representation |
-| `Throughput_kbps` | kbps | Trung binh mau segment / `player.getAverageThroughput()` |
+| `Throughput_kbps` | kbps | Trung binh trong so 10s (tong bits / tong SDT) / fallback `player.getAverageThroughput()` |
 | `Buffer_s` | giay | `player.getBufferLength("video")` |
 | `FPS` | so | `delta(totalVideoFrames) / delta(currentTime)` |
 
@@ -85,7 +85,7 @@ He thong su dung "per-log snapshots" — moi log entry chua toan bo metric tai t
 
 ```
 DownloadSpeed_kbps = (bytesLoaded × 8) / SDT_ms
-Throughput_kbps    = trung binh cac mau segment download speed trong 1 giay
+Throughput_kbps    = tong bits cua cac segment trong 10 giay / tong SDT cua cac segment do
 Jitter_ms          = |SDT_hien_tai − SDT_truoc|
 TTFB_ms            = responseStart − requestStart  (Performance Resource Timing API)
 RebufferingRatio   = totalStallDuration / (currentTime × 1000)
@@ -98,4 +98,5 @@ FPS                = (totalFrames_t2 - totalFrames_t1) / (currentTime_t2 - curre
 - **Protocol** lay tu `PerformanceResourceTiming.nextHopProtocol`.
 - **NetworkType** dung `navigator.connection.type` (loai ket noi vat ly thuc), KHONG dung `effectiveType` (luon tra "4g" cho WiFi tot).
 - **Stall** do tu dash.js `BUFFER_EMPTY`/`BUFFER_LOADED` — chinh xac hon HTML5 "waiting" event.
+- **Throughput** duoc tinh tu mau 10 giay theo trung binh trong so (tong bits / tong SDT), giam nhieu khi dao dong so voi trung binh 1 giay.
 - CSV xuat voi UTF-8 BOM de tuong thich Excel.
