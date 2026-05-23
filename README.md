@@ -1,62 +1,207 @@
-# YouTube Clone HTTP/3 (QUIC)
+# Hướng Dẫn Cài Đặt Dự Án YouTube Clone HTTP/3 (QUIC)
 
-## Giới thiệu dự án
+Tài liệu này hướng dẫn cài đặt và chạy dự án `youtube-clone-quic` trên máy cá nhân hoặc máy chủ. Dự án gồm:
 
-Dự án YouTube Clone HTTP/3 là một ứng dụng web kết hợp hệ thống máy chủ cung cấp khả năng phát video trực tuyến (video streaming). Điểm cốt lõi của dự án là việc khai thác tối đa sức mạnh của giao thức HTTP/3 (QUIC) thay thế cho HTTP/1.1 hoặc HTTP/2 thông thường nhằm khắc phục các vấn đề về độ trễ, mất gói tin, bảo đảm tiến trình truyền tải đa phương tiện đạt mức tối ưu nhất. 
+- `frontend`: giao diện React/Vite phát video và hiển thị thông số streaming.
+- `backend`: API Node.js/Express, cung cấp metadata video và điều khiển mô phỏng mạng.
+- `caddy_config`: Caddy reverse proxy, phục vụ frontend/media và bật HTTP/3 (QUIC).
+- `media`, `media-2`: dữ liệu video DASH/MP4 dùng để phát thử.
 
-Ứng dụng được xây dựng theo chuẩn MPEG-DASH (Dynamic Adaptive Streaming over HTTP), hỗ trợ tính năng tự động thay đổi băng thông (Adaptive Bitrate). Gói giải pháp tổng thể sử dụng Caddy làm Reverse Proxy xử lý kết nối QUIC (UDP) đồng thời cấp phát chứng chỉ bảo mật TLS tự động, Node.js chịu trách nhiệm cung cấp API dữ liệu và cấu hình đường truyền máy chủ, cùng với ReactJS ở đầu cuối cho trải nghiệm người dùng hiện đại, sắc nét.
+## 1. Yêu cầu hệ thống
 
-## Tính năng
+Cài sẵn các công cụ sau:
 
-- **Truyền phát video với HTTP/3 (QUIC)**: Giảm thiểu độ trễ kết nối, loại bỏ triệt để hiện tượng ngắt quãng truyền tải khi có gói tin thất lạc (Head-of-line blocking).
-- **Phát luồng động thích ứng (MPEG-DASH)**: Hệ thống video hỗ trợ thay đổi độ phân giải và chất lượng video một cách năng động theo điều kiện mạng thực tế của người sử dụng.
-- **Mô phỏng điều kiện mạng theo thời gian thực**: Backend tích hợp Endpoint kết nối với nhân hệ điều hành Linux (thông qua lệnh tc qdisc netem) cho phép người phát triển giới hạn mức băng thông, tăng thêm thời gian trễ mạng, hoặc tạo tỷ lệ rớt gói tin để kiểm tra khả năng phục hồi của luồng video ngay trên giao diện web.
-- **Hệ thống theo dõi thông số kỹ thuật (Analytics Dashboard)**: Cung cấp đầy đủ các chỉ số trực tiếp về hiệu suất buffer video, kết xuất băng thông và tình trạng mạng qua giao diện Frontend.
-- **Hỗ trợ đa định dạng mã hóa**: Cung cấp tùy chọn linh hoạt giữa chuẩn H.264 (tương thích mọi trình duyệt hiện hành) và chuẩn cao cấp HEVC dành riêng cho các quy trình thử nghiệm độ nén cao.
+- Docker Desktop hoặc Docker Engine.
+- Docker Compose plugin, kiểm tra bằng lệnh `docker compose version`.
+- Node.js 20+ và npm, cần khi chạy chế độ phát triển hoặc build production.
+- Trình duyệt hỗ trợ HTTP/3 như Chrome, Edge hoặc Firefox bản mới.
 
-## Luồng hoạt động
+Nếu chạy trên server, cần mở các cổng:
 
-1. **Khởi tạo kết nối**: Người dùng truy cập hệ thống bằng trình duyệt tương thích HTTP/3, gửi yêu cầu kết nối an toàn (HTTPS). 
-2. **Tiếp nhận xử lý**: Máy chủ Caddy đóng vai trò cổng giao tiếp chính, nhận yêu cầu bằng giao thức QUIC qua cổng UDP 443 và HTTP/TCP truyền thống.
-3. **Phân luồng dữ liệu**:
-   - Các tệp tin phân mảnh video (DASH chunks), tệp tĩnh (Manifest .mpd) và giao diện Frontend được trả về trực tiếp bởi Caddy để đạt tốc độ tĩnh tối đa.
-   - Các giao tiếp điều khiển linh hoạt được Caddy định tuyến về phía Backend (Node.js).
-4. **Phản hồi điều hướng API**: Backend chịu trách nhiệm cung cấp thông tin metadata cho video hiện tại. Nếu nhận được lệnh yêu cầu thử nghiệm nghẽn mạng từ người dùng qua Frontend API, Backend sẽ thực thi trực tiếp các điều hướng mạng (Traffic Control) để thắt chặt băng thông hay phát sinh độ trễ lên hệ thống nội bộ máy chủ.
-5. **Hiển thị đầu cuối**: Trên trình duyệt, hệ thống thư viện (như dash.js) liên tục cập nhật trạng thái kết nối mạng thực tế. Khi băng thông thực tế giảm, trình phát video phía Frontend sẽ chuyển dần phân mảnh video xuống chất lượng thấp hơn để hệ thống duy trì tính liên tục (không bị dừng đệm ngang chừng).
+- TCP `80`: HTTP, thường dùng để redirect sang HTTPS.
+- TCP `443`: HTTPS/HTTP/2.
+- UDP `443`: HTTP/3/QUIC.
 
-## Cấu trúc thư mục
+## 2. Chuẩn bị mã nguồn
 
-```text
-youtube-clone-quic/
-├── backend/                  # Máy chủ Node.js (Express), API và kiểm soát mạng ảo Docker
-├── caddy_config/             # Tập tin cấu hình Caddy Proxy, định tuyến và cấp TLS tự động
-├── frontend/                 # Ứng dụng React (Vite), phát luồng DASH và biểu đồ theo dõi
-├── media/                    # Kho dữ liệu video phân mảnh và manifest định dạng HEVC
-├── media-2/                  # Kho dữ liệu video phân mảnh và manifest định dạng H.264
-├── scripts/                  # Kịch bản dòng lệnh hỗ trợ tự động hóa cấu hình, mã hóa
-├── docker-compose.yml        # Điểm tập trung cấu hình Docker môi trường Development
-└── docker-compose.prod.yml   # Cấu hình Docker rút gọn cho môi trường Production
-```
-
-## Hướng dẫn cài đặt và chạy dự án
-
-### Yêu cầu hệ thống ban đầu
-
-- Cài đặt hệ sinh thái Docker và Docker Compose phiên bản mới trên máy.
-- Môi trường thực thi Node.js (phiên bản 18+ khuyến nghị) dành cho xây dựng Frontend cơ bản.
-- Lựa chọn một trình duyệt hỗ trợ công nghệ HTTP/3 sẵn có, tiêu biểu là Google Chrome hoặc Microsoft Edge.
-
-### Chuẩn bị mã nguồn
-
-Mở ứng dụng Terminal hoặc Command Prompt, sao chép hoặc di chuyển tới thư mục gốc dự án:
+Vào thư mục gốc của dự án:
 
 ```bash
 cd youtube-clone-quic
 ```
 
-### Xây dựng sản phẩm đầu cuối (Frontend)
+Kiểm tra các thư mục video đã có dữ liệu:
 
-Cài đặt các gói phụ thuộc và tiền xử lý mã nguồn bản trình chiếu cho máy chủ cung cấp ảnh tĩnh:
+```bash
+ls media
+ls media-2
+```
+
+Trên Windows PowerShell có thể dùng:
+
+```powershell
+Get-ChildItem media
+Get-ChildItem media-2
+```
+
+## 3. Cấu hình domain hoặc localhost
+
+File cấu hình local hiện nằm ở `caddy_config/Caddyfile`. Trong file này, site đang được khai báo bằng domain:
+
+```caddyfile
+video.duxng.io.vn {
+```
+
+Nếu chạy bằng domain đó và domain đã trỏ về máy/server hiện tại, có thể giữ nguyên.
+
+Nếu chạy trên máy cá nhân, đổi dòng trên thành:
+
+```caddyfile
+localhost {
+```
+
+Khi dùng chứng chỉ local/self-signed, trình duyệt có thể hiện cảnh báo bảo mật. Đây là hành vi bình thường trong môi trường phát triển; chọn tiếp tục truy cập để kiểm thử.
+
+Nếu triển khai production bằng domain thật, không cần sửa `Caddyfile`; dùng `docker-compose.prod.yml` và `caddy_config/Caddyfile.prod` theo phần production bên dưới.
+
+## 4. Chạy bằng Docker Compose
+
+Đây là cách khuyến nghị để kiểm thử đầy đủ Caddy, backend, frontend, media server và HTTP/3.
+
+Từ thư mục gốc dự án, chạy:
+
+```bash
+docker compose up -d --build
+```
+
+Kiểm tra trạng thái container:
+
+```bash
+docker compose ps
+```
+
+Xem log khi cần:
+
+```bash
+docker compose logs -f caddy
+docker compose logs -f backend
+docker compose logs -f frontend
+```
+
+Truy cập ứng dụng:
+
+- Nếu dùng `localhost` trong `caddy_config/Caddyfile`: mở `https://localhost/`.
+- Nếu giữ domain hiện tại: mở `https://video.duxng.io.vn/`.
+- Nếu đổi sang domain/IP khác: mở `https://<domain-hoac-ip-cua-ban>/`.
+
+Backend API chạy phía sau Caddy, có thể kiểm tra nhanh:
+
+```bash
+curl -k https://localhost/api/video-info
+curl -k https://localhost/api/media2-videos
+```
+
+Nếu không dùng `localhost`, thay URL bằng domain/IP đang cấu hình.
+
+## 5. Kiểm tra HTTP/3 (QUIC)
+
+Sau khi mở ứng dụng trong trình duyệt:
+
+1. Mở Developer Tools.
+2. Vào tab Network.
+3. Bật cột Protocol nếu chưa thấy.
+4. Reload trang.
+5. Nếu các request hiển thị `h3`, HTTP/3 đã hoạt động.
+
+Nếu chưa thấy `h3`, kiểm tra lại:
+
+- Cổng UDP `443` đã được mở.
+- Trình duyệt hỗ trợ HTTP/3.
+- Website đang chạy qua HTTPS.
+- Domain/chứng chỉ TLS hợp lệ hoặc đã được trình duyệt chấp nhận trong môi trường local.
+
+## 6. Dừng hệ thống
+
+Dừng container nhưng giữ volume:
+
+```bash
+docker compose down
+```
+
+Dừng và xóa cả volume Caddy:
+
+```bash
+docker compose down -v
+```
+
+Chỉ dùng `-v` khi muốn xóa dữ liệu volume như cache/certificate do Caddy tạo.
+
+## 7. Chạy chế độ phát triển frontend/backend
+
+Chế độ này phù hợp khi sửa code nhanh. Lưu ý: cách chạy này không kiểm thử HTTP/3 đầy đủ vì bỏ qua Caddy.
+
+Chạy backend:
+
+```bash
+cd backend
+npm install
+npm start
+```
+
+Backend mặc định lắng nghe tại `http://localhost:3000`.
+
+Mở terminal khác để chạy frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend Vite mặc định chạy tại:
+
+```text
+http://localhost:5173
+```
+
+Nếu muốn Vite proxy trực tiếp đến backend local thay vì Caddy, tạo file `frontend/.env` với nội dung:
+
+```env
+VITE_PROXY_TARGET=http://localhost:3000
+```
+
+Sau đó khởi động lại `npm run dev`.
+
+## 8. Build frontend thủ công
+
+Khi cần build frontend:
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+Kết quả build nằm trong:
+
+```text
+frontend/dist
+```
+
+## 9. Triển khai production
+
+Production dùng `docker-compose.prod.yml` và `caddy_config/Caddyfile.prod`. Cách này phù hợp khi có domain thật trỏ về server.
+
+Chuẩn bị file `.env` ở thư mục gốc:
+
+```env
+DOMAIN=video.example.com
+CORS_ORIGIN=https://video.example.com
+```
+
+Thay `video.example.com` bằng domain thật của bạn.
+
+Build frontend trước:
 
 ```bash
 cd frontend
@@ -65,71 +210,83 @@ npm run build
 cd ..
 ```
 
-### Triển khai hệ thống tại máy trạm cá nhân (Local Development)
+Khởi động production:
 
-Tiến hành cho phép công cụ Docker xây dựng và chạy toàn bộ hình ảnh môi trường bằng lệnh sau ngay tại thư mục gốc:
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Kiểm tra container:
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+```
+
+Xem log Caddy để kiểm tra cấp chứng chỉ TLS:
+
+```bash
+docker compose -f docker-compose.prod.yml logs -f caddy
+```
+
+Khi production chạy đúng, truy cập:
+
+```text
+https://video.example.com/
+```
+
+## 10. Lỗi thường gặp
+
+### Cổng 80 hoặc 443 đã bị chiếm
+
+Dừng dịch vụ đang dùng cổng đó, ví dụ nginx, Apache, IIS hoặc một container khác. Sau đó chạy lại:
 
 ```bash
 docker compose up -d --build
 ```
 
-Máy chủ hệ thống đã sẵn sàng đi vào hoạt động ở trạng thái tách rời. Caddy, Node Backend và hệ thống tệp tin tĩnh đã được liên kết với nhau trong mạng lưới phân tích nội bộ.
+### Không thấy HTTP/3
 
-### Kiểm tra hệ thống với chuẩn HTTP/3
+Kiểm tra UDP `443` đã mở trên firewall/router/cloud provider. HTTP/3 dùng UDP, nên chỉ mở TCP `443` là chưa đủ.
 
-1. Mở trình duyệt Web (dùng Chrome làm khuyến nghị cơ sở).
-2. Nhập thanh địa chỉ là đường dẫn an toàn: `https://localhost/` hoặc `https://127.0.0.1/`
-3. Vui lòng cho phép bỏ qua cảnh báo bảo mật nếu trình duyệt yêu cầu xác thực chứng chỉ môi trường lập trình cá nhân tự ký (Self-signed certificate) từ Caddy.
-4. Bạn có thể sử dụng công cụ Developer Tools của trình duyệt mạng (Nhấn F12), chuyển sang thẻ Network. Dò tìm các yêu cầu nhận tập tin, kiểm tra bảng "Protocol", nếu ghi nhận định danh là chuẩn `h3`, đồng nghĩa bạn đã thiết lập giao thức tương tác gốc HTTP/3 thành công.
+### Trình duyệt báo chứng chỉ không tin cậy
 
-### Triển khai lên máy chủ thật (Production)
+Với môi trường local, có thể tiếp tục truy cập sau cảnh báo. Với production, cần dùng domain thật để Caddy tự cấp chứng chỉ Let's Encrypt.
 
-Phiên bản dành cho cấp độ sản phẩm chính quy được điều hướng cụ thể qua một bộ mã lệnh mới với địa chỉ tên miền đăng ký xác thực. Thao tác thực thi:
+### Video không phát
 
-```bash
-# Thiết lập biến môi trường chứa tên miền đăng ký sẵn
-export DOMAIN="your-domain.com"
+Kiểm tra các file media:
 
-# Tiến hành cho xây dựng và khởi động môi trường chuyên dụng
-docker compose -f docker-compose.prod.yml up -d --build
-```
+- `media/stream.mpd` phải tồn tại nếu phát DASH.
+- `media/` phải có các file segment `.m4s`.
+- `media-2/` phải có các thư mục hoặc file video MP4 tương ứng.
 
-Hệ thống sẽ dựa vào Caddy để kết nối tới Let's Encrypt, khởi tạo tự động các chứng chỉ tin cậy của máy chủ. Bạn truy cập qua địa chỉ bảo mật thực tế của riêng mình để sử dụng cơ chế truyền hình tối ưu mới nhất từ hệ thống.
-
-## Hướng dẫn thêm video và phân mảnh (DASH)
-
-Để có thể phát một video mới trên hệ thống với công nghệ phân mảnh DASH và tương thích liên tục nhiều mức độ phân giải (Adaptive Bitrate), bạn cần làm việc bằng công cụ giải mã. Hệ thống đã chuẩn bị sẵn mã lệnh chạy FFmpeg tiên tiến thông qua Docker, giúp tiến trình xử lý trở nên gọn gàng mà không yêu cầu bạn cài đặt FFmpeg trực tiếp lên máy cá nhân.
-
-### Bước 1: Chuẩn bị video gốc
-
-- Khởi đầu bằng việc thả một video có định dạng MP4 truyền thống của bạn (ví dụ mang tên: `input.mp4`) trực tiếp vào bên trong thư mục `media/` hoặc `media-2/` của dự án dự phòng sẵn.
-- Nên ưu tiên đặt tại `media-2` đối với video phổ thông mã hóa bằng H.264 (Dễ thao tác trên mọi màn hình).
-
-### Bước 2: Chạy bộ tiền xử lý và cắt mạch video
-
-Đứng tại thư mục thiết lập của dự án và khởi lệnh bằng chương trình Docker như sau. Tập lệnh thực hiện tách dải hình ảnh, phân xuất kích thước, đồng thời tạo ra hai loại hình chuẩn độ mượt riêng biệt là góc 360p (500k bitrate) và toàn ảnh 720p (1000k bitrate). Mọi kết quả được liên kết logic với hệ thống tệp tin trung tâm `stream.mpd`:
+Sau khi thêm hoặc đổi video, khởi động lại container nếu cần:
 
 ```bash
-docker run -v $(pwd)/media:/data jrottenberg/ffmpeg:4.4-alpine \
-  -i /data/input.mp4 \
-  -map 0:v -b:v:0 500k -s:v:0 640x360 -profile:v:0 main \
-  -map 0:v -b:v:1 1000k -s:v:1 1280x720 -profile:v:1 main \
-  -map 0:a? -c:a aac -b:a 128k \
-  -use_template 1 -use_timeline 1 -seg_duration 4 \
-  -adaptation_sets "id=0,streams=v id=1,streams=a" \
-  -f dash /data/stream.mpd
+docker compose restart caddy backend
 ```
 
-Một số lưu ý cho quản trị viên tùy biến:
-- Từ khóa `input.mp4` ở dòng số 2 là tên cơ sở của dữ liệu thô. Hãy chỉnh thành gốc video của riêng bạn.
-- Khi điều tiết video tại thư mục `media-2/`, cần đổi đầu nối ở dòng đầu tiên thành `$(pwd)/media-2:/data`.
-- Gốc `seg_duration 4` định nghĩa khoảng cắt của mỗi đoạn cấu hình nhỏ dài 4 giây. Đoạn phân mảnh ngắn giúp màn hình xem nhận định mức thay đổi băng thông (từ đường mạng thắt cổ chai) và phản ứng thay đổi cấp phân giải một cách nhanh chóng.
+### API mô phỏng mạng không hoạt động
 
-### Bước 3: Cấu hình hệ thống Frontend đón dữ liệu
+Tính năng mô phỏng mạng dùng lệnh `tc` và quyền `NET_ADMIN`, nên nên chạy bằng Docker Compose. Khi chạy backend trực tiếp bằng `npm start`, tính năng này có thể không hoạt động đầy đủ trên Windows/macOS.
 
-Sau khi dòng lệnh trả về sự đồng thuận, trong kho chứa thư mục media của bạn sẽ lấp đầy dần các lớp phân mảnh nhỏ gọn và kèm ở cuối là một tệp `stream.mpd`. 
+## 11. Các lệnh nhanh
 
-Để kích hoạt đoạn phim vừa làm xong:
-1. Mở tập tin chứa thành phần React nằm ở `frontend/src/App.jsx`.
-2. Di chuyển đến khối định nghĩa nguồn khai báo `VIDEO_SOURCES`.
-3. Chỉ đường dẫn của đối tượng `manifestUrl` về phía `stream.mpd` vừa khởi tạo. Nếu thay đổi của bạn nằm ở thư mục hai thì tham chiếu tương tự mẫu là `/media-2/stream.mpd`. Trình chiếu DASH sau đó sẽ tự động bắt lấy mạch kết nối khi giao diện được tải lại, phô diễn liền mạch những phân lớp video theo đúng kiến trúc tối tân của hệ thống.
+```bash
+# Chạy development đầy đủ qua Docker
+docker compose up -d --build
+
+# Xem trạng thái
+docker compose ps
+
+# Xem log
+docker compose logs -f
+
+# Dừng
+docker compose down
+
+# Build frontend
+cd frontend
+npm install
+npm run build
+```
