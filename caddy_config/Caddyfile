@@ -4,7 +4,8 @@
     }
 }
 
-video.duxng.io.vn {
+video.duxng.io.vn, localhost, 127.0.0.1 {
+    tls internal
     encode zstd gzip
 
     @preflight method OPTIONS
@@ -29,8 +30,15 @@ video.duxng.io.vn {
         file_server
     }
 
+    handle /video/* {
+        header Timing-Allow-Origin *
+        header Access-Control-Allow-Origin *
+        root * /srv
+        file_server
+    }
+
     handle /api/* {
-        reverse_proxy localhost:3000
+        reverse_proxy 127.0.0.1:3000
     }
 
     handle {
