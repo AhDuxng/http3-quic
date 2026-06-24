@@ -1,26 +1,7 @@
-/**
- * videoController.js - Controller xu ly cac yeu cau lien quan den video.
- *
- * Controller chua logic nghiep vu (business logic) cho video module.
- * Hien tai tra ve du lieu tinh (static), co the mo rong sau:
- * - Doc tu database
- * - Doc tu file config
- * - Tao dong tu ten file trong thu muc media
- *
- * Nguyen tac: Controller khong biet gi ve Express request/response,
- * chi tra ve du lieu thuan tuy. Viec map vao res.json() la cua router.
- */
 const fs = require("fs");
 const path = require("path");
-const { MEDIA2_DIR } = require("../constants/paths");
+const { media2Dir } = require("../constants/paths");
 
-/**
- * Tra ve thong tin metadata cua video stream.
- *
- * manifestUrl: duong dan tuong doi, Caddy se serve file .mpd nay tu /srv/media.
- *
- * @returns {import("../type/video").VideoInfo}
- */
 function getVideoInfo() {
   return {
     title: "HTTP/3 Video Streaming Demo",
@@ -30,39 +11,29 @@ function getVideoInfo() {
   };
 }
 
-/**
- * Scan thu muc media-2 va tra ve danh sach video chia theo bitrate.
- * Moi thu muc con co dang: bunny_<bitrate>bps/BigBuckBunny_4snonSeg.mp4
- *
- * @returns {Array<{id: string, label: string, bitrateBps: number, url: string}>}
- */
 function getMedia2Videos() {
   try {
-    const entries = fs.readdirSync(MEDIA2_DIR, { withFileTypes: true });
+    const entries = fs.readdirSync(media2Dir, { withFileTypes: true });
     return entries
-      .filter((e) => e.isDirectory())
-      .map((dir) => {
-        // Trich xuat bitrate tu ten thu muc (vd: bunny_1008699bps -> 1008699)
-        const match = dir.name.match(/(\d+)bps$/);
+      .filter((entry) => entry.isDirectory())
+      .map((dirEntry) => {
+        const match = dirEntry.name.match(/(\d+)bps$/);
         const bitrateBps = match ? Number(match[1]) : 0;
-
-        // Tim file video trong thu muc
-        const files = fs.readdirSync(path.join(MEDIA2_DIR, dir.name));
-        const videoFile = files.find((f) => f.endsWith(".mp4")) || "";
+        const files = fs.readdirSync(path.join(media2Dir, dirEntry.name));
+        const videoFile = files.find((file) => file.endsWith(".mp4")) || "";
 
         return {
-          id: dir.name,
+          id: dirEntry.name,
           label: `${(bitrateBps / 1000).toFixed(0)} kbps`,
           bitrateBps,
-          url: videoFile ? `/media-2/${dir.name}/${videoFile}` : "",
+          url: videoFile ? `/media-2/${dirEntry.name}/${videoFile}` : "",
         };
       })
-      .filter((v) => v.url && v.bitrateBps > 0)
-      .sort((a, b) => a.bitrateBps - b.bitrateBps);
+      .filter((video) => video.url && video.bitrateBps > 0)
+      .sort((firstVideo, secondVideo) => firstVideo.bitrateBps - secondVideo.bitrateBps);
   } catch {
     return [];
   }
 }
 
 module.exports = { getVideoInfo, getMedia2Videos };
-
