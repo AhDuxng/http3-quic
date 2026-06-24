@@ -1,9 +1,3 @@
-// performanceApi.ts — Tien ich do luong tu Performance API va Network Information API
-
-/**
- * Phat hien giao thuc HTTP thuc te tu Performance Resource Timing API.
- * entry.nextHopProtocol: "h3" -> HTTP/3, "h2" -> HTTP/2, "http/1.1" -> HTTP/1.1
- */
 export function detectProtocol(urlFragment?: string): string {
   try {
     const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
@@ -19,18 +13,14 @@ export function detectProtocol(urlFragment?: string): string {
       if (p === "h2") return "HTTP/2";
       if (p.startsWith("http/1")) return "HTTP/1.1";
     }
-    // Fallback: tim tren tat ca resource entries
     if (urlFragment) return detectProtocol(undefined);
-  } catch { /* API khong ho tro */ }
+  } catch {
+    return "Detecting...";
+  }
   return "Detecting...";
 }
 
-/**
- * Lay TTFB chinh xac tu Performance Resource Timing API.
- * TTFB = responseStart - requestStart
- * Yeu cau header Timing-Allow-Origin tren server.
- */
-export function getTTFBFromPerformanceAPI(segmentUrl: string): number {
+export function getTtfbFromPerformanceApi(segmentUrl: string): number {
   try {
     const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
     for (let i = entries.length - 1; i >= 0; i--) {
@@ -42,19 +32,18 @@ export function getTTFBFromPerformanceAPI(segmentUrl: string): number {
         }
       }
     }
-  } catch { /* Performance API khong kha dung */ }
+  } catch {
+    return 0;
+  }
   return 0;
 }
 
-/**
- * Lay loai ket noi mang VAT LY tu Network Information API.
- * Dung connection.type (tra ve "wifi", "cellular", "ethernet", "none")
- * KHONG dung effectiveType (luon tra "4g" cho WiFi tot).
- */
 export function getNetworkType(): string {
   try {
-    const conn = (navigator as any).connection;
-    if (conn?.type) return conn.type;
-  } catch { /* API khong ho tro */ }
+    const connection = (navigator as any).connection;
+    if (connection?.type) return connection.type;
+  } catch {
+    return "unknown";
+  }
   return "unknown";
 }

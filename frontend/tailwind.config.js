@@ -1,4 +1,3 @@
-/** @type {import('tailwindcss').Config} */
 export default {
   content: [
     "./index.html",
@@ -6,13 +5,12 @@ export default {
   ],
   theme: {
     extend: {
-      // Định nghĩa màu cam thương hiệu của bạn nếu muốn dùng tên riêng
       colors: {
         brand: {
-          orange: '#f97316', // Cam đậm (Orange-500)
+          orange: '#f97316',
           white: '#ffffff',
-        }
-      }
+        },
+      },
     },
   },
   plugins: [],

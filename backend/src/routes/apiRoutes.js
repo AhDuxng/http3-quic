@@ -1,17 +1,8 @@
 const express = require("express");
-const { getVideoInfo, getMedia2Videos } = require("../controllers/videoController");
 const { applyNetworkScenario } = require("../controllers/networkController");
 
 function createApiRouter() {
   const router = express.Router();
-
-  router.get("/video-info", (_req, res) => {
-    res.json(getVideoInfo());
-  });
-
-  router.get("/media2-videos", (_req, res) => {
-    res.json(getMedia2Videos());
-  });
 
   router.post("/network-scenario", applyNetworkScenario);
 

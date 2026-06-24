@@ -52,6 +52,4 @@ caddy_config/certs/*.crt
 caddy_config/certs/*.key
 caddy_config/certs/*.pem
 
-video/
-
-logs/
+/video/

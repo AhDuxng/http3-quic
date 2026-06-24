@@ -1,9 +1,3 @@
-/*
- * App.css — Style toan cuc cho ung dung.
- * Du an su dung Tailwind CSS chu yeu, file nay giu phan reset.
- */
-
-/* Reset mac dinh cho #root */
 #root {
   width: 100%;
 }

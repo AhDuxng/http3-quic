@@ -1,78 +1,73 @@
-// NetworkSimulationPanel.tsx — Panel mo phong dieu kien mang
-import { useState } from "react";
+import { createElement, memo, useMemo } from "react";
+import type { Representation } from "dashjs";
 import { FaNetworkWired, FaEdit, FaCheck } from "react-icons/fa";
-import { NETWORK_SCENARIOS, SCENARIO_ICONS } from "../constants/networkScenarios";
+import { networkScenarios, scenarioIcons } from "../constants/networkScenarios";
 import { formatBitrateKbps } from "../hooks/useDashPlayer";
-import type { NetworkScenario } from "../../../type/video";
-import type { QualitySelection, StreamStats } from "../type/dashPlayer";
+import { useNetworkScenarioForm } from "../hooks/useNetworkScenarioForm";
+import type { NetworkScenario, NetworkScenarioId } from "../../../type/video";
+import type { QualitySelection } from "../type/dashPlayer";
+import { PanelHeader } from "./shared/PanelHeader";
 
-interface Props {
-  stats: StreamStats;
-  representations: any[];
+interface NetworkSimulationPanelProps {
+  currentBitrateKbps: number;
+  representations: Representation[];
   isAutoQuality: boolean;
-  activeScenarioId: string;
+  activeScenarioId: NetworkScenarioId;
   qualitySelection: QualitySelection;
-  setQualitySelection: (val: QualitySelection) => void;
+  setQualitySelection: (value: QualitySelection) => void;
   applyScenario: (scenario: NetworkScenario) => void;
   isManualMode: boolean;
-  setIsManualMode: (val: boolean | ((old: boolean) => boolean)) => void;
+  setIsManualMode: (value: boolean | ((previousValue: boolean) => boolean)) => void;
 }
 
-export function NetworkSimulationPanel({
-  stats, representations, isAutoQuality, activeScenarioId,
+function NetworkSimulationPanelComponent({
+  currentBitrateKbps, representations, isAutoQuality, activeScenarioId,
   qualitySelection, setQualitySelection, applyScenario,
   isManualMode, setIsManualMode,
-}: Props) {
-  const [customNet, setCustomNet] = useState({ bitrate: "", delay: "", loss: "" });
-  const [isCustomExpanded, setIsCustomExpanded] = useState(false);
+}: NetworkSimulationPanelProps) {
+  const {
+    customNet,
+    isCustomExpanded,
+    updateCustomNet,
+    applyCustomNet,
+    toggleCustomExpanded,
+  } = useNetworkScenarioForm({ applyScenario });
 
-  // Ap dung kich ban custom
-  const applyCustomNet = () => {
-    applyScenario({
-      id: "custom" as any,
-      label: "Custom",
-      speedLabel: customNet.bitrate ? `${customNet.bitrate} kbps` : "No limit",
-      maxBitrateKbps: customNet.bitrate ? Number(customNet.bitrate) : null,
-      delayMs: customNet.delay ? Number(customNet.delay) : 0,
-      lossPercent: customNet.loss ? Number(customNet.loss) : 0,
-      description: "Custom user settings",
-    });
-  };
-
-  const activeScenario = NETWORK_SCENARIOS.find((s) => s.id === activeScenarioId) ?? NETWORK_SCENARIOS[0];
+  const activeScenario = useMemo(
+    () => networkScenarios.find((scenario) => scenario.id === activeScenarioId) ?? networkScenarios[0],
+    [activeScenarioId],
+  );
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shrink-0">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-        <div className="flex items-center gap-2">
-          <FaNetworkWired className="text-slate-400 w-3 h-3" />
-          <span className="text-[11px] font-bold tracking-widest text-slate-600">NETWORK SIMULATION</span>
-        </div>
-        {/* Chuyen giua Auto va Manual */}
-        <button onClick={() => setIsManualMode((v) => !v)}
-          className="text-[10px] font-semibold text-blue-500 hover:text-blue-700 transition-colors">
-          {isManualMode ? "AUTO MODE" : "MANUAL CONTROL"}
-        </button>
-      </div>
+      <PanelHeader
+        icon={<FaNetworkWired className="text-slate-400 w-3 h-3" />}
+        title="NETWORK SIMULATION"
+        actions={(
+          <button onClick={() => setIsManualMode((previousValue) => !previousValue)}
+            className="text-[10px] font-semibold text-blue-500 hover:text-blue-700 transition-colors">
+            {isManualMode ? "AUTO MODE" : "MANUAL CONTROL"}
+          </button>
+        )}
+      />
 
       {isManualMode ? (
-        /* Che do Manual: chon quality thu cong */
         <div className="p-3">
           <select
             value={qualitySelection}
-            onChange={(e) => {
-              const v = e.target.value;
-              setQualitySelection(v === "auto" ? "auto" : Number.parseInt(v, 10));
+            onChange={(event) => {
+              const selectedValue = event.target.value;
+              setQualitySelection(selectedValue === "auto" ? "auto" : Number.parseInt(selectedValue, 10));
             }}
             className="w-full text-sm border border-slate-200 rounded px-2.5 py-2 outline-none focus:border-blue-400"
           >
-            <option value="auto">Auto ABR ({formatBitrateKbps(stats.bitrateKbps)})</option>
-            {representations.map((rep, i) => (
-              <option key={i} value={i}>
-                {rep.height ? `${rep.height}p` : "—"} — {formatBitrateKbps(
-                  typeof rep.bitrateInKbit === "number"
-                    ? rep.bitrateInKbit
-                    : Math.round((rep.bandwidth ?? 0) / 1000)
+            <option value="auto">Auto ABR ({formatBitrateKbps(currentBitrateKbps)})</option>
+            {representations.map((representation, index) => (
+              <option key={index} value={index}>
+                {representation.height ? `${representation.height}p` : "—"} — {formatBitrateKbps(
+                  typeof representation.bitrateInKbit === "number"
+                    ? representation.bitrateInKbit
+                    : Math.round((representation.bandwidth ?? 0) / 1000)
                 )}
               </option>
             ))}
@@ -85,17 +80,18 @@ export function NetworkSimulationPanel({
           </p>
         </div>
       ) : (
-        /* Che do Auto: danh sach kich ban mang */
         <div className="divide-y divide-slate-50">
-          {NETWORK_SCENARIOS.map((scenario) => {
-            const Icon = SCENARIO_ICONS[scenario.id];
+          {networkScenarios.map((scenario) => {
+            const scenarioIcon = scenarioIcons[scenario.id];
             const isActive = activeScenarioId === scenario.id;
             return (
               <button key={scenario.id} type="button" onClick={() => applyScenario(scenario)}
                 className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
                   isActive ? "bg-blue-50" : "hover:bg-slate-50"
                 }`}>
-                {Icon && <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-blue-500" : "text-slate-400"}`} />}
+                {scenarioIcon && createElement(scenarioIcon, {
+                  className: `w-3.5 h-3.5 shrink-0 ${isActive ? "text-blue-500" : "text-slate-400"}`,
+                })}
                 <span className={`flex-1 text-sm ${isActive ? "text-blue-700 font-semibold" : "text-slate-700"}`}>
                   {scenario.label}
                   {isActive && activeScenario?.maxBitrateKbps == null && (
@@ -111,14 +107,13 @@ export function NetworkSimulationPanel({
         </div>
       )}
 
-      {/* === Form kich ban custom === */}
       {!isManualMode && (
         <div className="border-t border-slate-100 p-3 bg-slate-50">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
               <FaEdit className="text-slate-400" /> CUSTOM SETTINGS
             </span>
-            <button type="button" onClick={() => setIsCustomExpanded(!isCustomExpanded)}
+            <button type="button" onClick={toggleCustomExpanded}
               className="text-[10px] text-blue-500 hover:text-blue-700 font-semibold">
               {activeScenarioId === "custom" ? "ACTIVE" : isCustomExpanded ? "HIDE" : "SHOW"}
             </button>
@@ -129,19 +124,19 @@ export function NetworkSimulationPanel({
                 <div>
                   <label className="text-[9px] font-semibold text-slate-500 block mb-1">Max Bitrate (kbps)</label>
                   <input type="number" placeholder="vd 1000" value={customNet.bitrate}
-                    onChange={(e) => setCustomNet({ ...customNet, bitrate: e.target.value })}
+                    onChange={(event) => updateCustomNet("bitrate", event.target.value)}
                     className="w-full text-xs border border-slate-200 rounded px-2 py-1.5 outline-none focus:border-blue-400" />
                 </div>
                 <div>
                   <label className="text-[9px] font-semibold text-slate-500 block mb-1">Delay (ms)</label>
                   <input type="number" placeholder="vd 50" value={customNet.delay}
-                    onChange={(e) => setCustomNet({ ...customNet, delay: e.target.value })}
+                    onChange={(event) => updateCustomNet("delay", event.target.value)}
                     className="w-full text-xs border border-slate-200 rounded px-2 py-1.5 outline-none focus:border-blue-400" />
                 </div>
                 <div>
                   <label className="text-[9px] font-semibold text-slate-500 block mb-1">Loss (%)</label>
                   <input type="number" placeholder="vd 1" value={customNet.loss}
-                    onChange={(e) => setCustomNet({ ...customNet, loss: e.target.value })}
+                    onChange={(event) => updateCustomNet("loss", event.target.value)}
                     className="w-full text-xs border border-slate-200 rounded px-2 py-1.5 outline-none focus:border-blue-400" />
                 </div>
               </div>
@@ -158,3 +153,6 @@ export function NetworkSimulationPanel({
     </div>
   );
 }
+
+export const NetworkSimulationPanel = memo(NetworkSimulationPanelComponent);
+NetworkSimulationPanel.displayName = "NetworkSimulationPanel";
