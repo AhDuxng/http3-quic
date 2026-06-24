@@ -52,9 +52,6 @@ caddy_config/certs/*.crt
 caddy_config/certs/*.key
 caddy_config/certs/*.pem
 
-# ===== Media files =====
-# Khong day media len git
-media/
-media-2/
+video/
 
 logs/
