@@ -20,11 +20,14 @@ export function detectProtocol(urlFragment?: string): string {
   return "Detecting...";
 }
 
-export function getTtfbFromPerformanceApi(segmentUrl: string): number {
+export function getTtfbFromPerformanceApi(segmentUrl: string, resourcePrefix?: string): number {
   try {
     const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i];
+      if (resourcePrefix && !entry.name.includes(resourcePrefix) && !segmentUrl.includes(resourcePrefix)) {
+        continue;
+      }
       if (entry.name.includes(segmentUrl) || segmentUrl.includes(entry.name)) {
         const ttfb = entry.responseStart - entry.requestStart;
         if (ttfb > 0 && Number.isFinite(ttfb)) {

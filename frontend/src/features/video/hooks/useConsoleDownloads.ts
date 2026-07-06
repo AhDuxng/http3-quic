@@ -48,6 +48,8 @@ export function useConsoleDownloads({
     const keyword = filter.toLowerCase();
     return logs.filter(
       (log) => log.message.toLowerCase().includes(keyword)
+        || log.streamTitle.toLowerCase().includes(keyword)
+        || log.segmentLabel.toLowerCase().includes(keyword)
         || log.level.toLowerCase().includes(keyword)
         || log.statsSnapshot.protocolLabel.toLowerCase().includes(keyword),
     );

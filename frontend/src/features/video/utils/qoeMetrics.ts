@@ -31,6 +31,8 @@ export function calculateQualitySwitchTotals(
   current: QualitySwitchTotals,
 ): QualitySwitchTotals {
   // QoE: dem so lan ABR doi chat luong da render, tach rieng so lan tang/giam chat luong.
+  if (direction !== "up" && direction !== "down") return current;
+
   return {
     qualitySwitchCount: current.qualitySwitchCount + 1,
     qualityUpSwitchCount: current.qualityUpSwitchCount + (direction === "up" ? 1 : 0),

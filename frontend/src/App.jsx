@@ -105,6 +105,13 @@ function App() {
     setSelectedSegment(segmentSeconds);
   }, []);
 
+  const selectSingleVideo = useCallback((videoId) => {
+    if (videoId === selectedSingleId) return;
+    playerRefs.current = {};
+    setDetectedProtocol("Detecting...");
+    setSelectedSingleId(videoId);
+  }, [selectedSingleId]);
+
   const toggleDualVideo = useCallback((videoId) => {
     setSelectedDualIds((currentIds) => {
       if (currentIds.includes(videoId)) {
@@ -199,6 +206,7 @@ function App() {
                 ref={registerPlayer(selectedSingleVideo.id)}
                 manifestUrl={selectedSingleVideo.manifestUrl}
                 streamTitle={selectedSingleVideo.title}
+                segmentSeconds={selectedSegment}
                 onProtocolChange={handleProtocolChange}
               />
             )}
@@ -215,7 +223,7 @@ function App() {
                     <button
                       key={video.id}
                       type="button"
-                      onClick={() => setSelectedSingleId(video.id)}
+                      onClick={() => selectSingleVideo(video.id)}
                       className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
                     >
                       <span className="w-10 h-10 rounded bg-slate-100 flex items-center justify-center shrink-0">
@@ -270,6 +278,7 @@ function App() {
                     ref={registerPlayer(video.id)}
                     manifestUrl={video.manifestUrl}
                     streamTitle={video.title}
+                    segmentSeconds={selectedSegment}
                     variant="compact"
                     onProtocolChange={handleProtocolChange}
                   />
@@ -289,6 +298,7 @@ function App() {
                 ref={registerPlayer(video.id)}
                 manifestUrl={video.manifestUrl}
                 streamTitle={video.title}
+                segmentSeconds={selectedSegment}
                 variant="compact"
                 onProtocolChange={handleProtocolChange}
               />

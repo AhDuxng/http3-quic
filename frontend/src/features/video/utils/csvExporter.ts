@@ -15,10 +15,11 @@ function buildCsv(headers: string[], rows: Array<Array<unknown>>) {
 
 export function generateLogsCsv(logs: LogEntry[]): string {
   return buildCsv(
-    ["Timestamp", "Stream", "Level", "Message", "Protocol", "NetworkType", "IsAutoQuality", "ActiveScenario"],
+    ["Timestamp", "Stream", "Segment", "Level", "Message", "Protocol", "NetworkType", "IsAutoQuality", "ActiveScenario"],
     logs.map((log) => [
       log.timestamp,
       log.streamTitle,
+      log.segmentLabel,
       log.level,
       log.message,
       log.statsSnapshot.protocolLabel,
@@ -32,7 +33,7 @@ export function generateLogsCsv(logs: LogEntry[]): string {
 export function generateQosCsv(logs: LogEntry[]): string {
   return buildCsv(
     [
-      "Timestamp", "Stream", "Protocol", "NetworkType",
+      "Timestamp", "Stream", "Segment", "Protocol", "NetworkType",
       "AvgThroughput_kbps", "DownloadSpeed_kbps", "Goodput_kbps",
       "TTFB_ms", "SegmentDownloadTime_ms", "Jitter_ms",
       "OverheadRatio", "ConnectionSetup_ms", "DNS_ms", "TCP_ms", "TLS_ms",
@@ -44,6 +45,7 @@ export function generateQosCsv(logs: LogEntry[]): string {
       return [
         log.timestamp,
         log.streamTitle,
+        log.segmentLabel,
         stats.protocolLabel,
         stats.networkType,
         stats.avgThroughputKbps.toFixed(2),
@@ -70,7 +72,7 @@ export function generateQosCsv(logs: LogEntry[]): string {
 export function generateQoeCsv(logs: LogEntry[]): string {
   return buildCsv(
     [
-      "Timestamp", "Stream", "Bitrate_kbps", "AverageBitrate_kbps", "Resolution",
+      "Timestamp", "Stream", "Segment", "Bitrate_kbps", "AverageBitrate_kbps", "Resolution",
       "FPS", "DroppedFrames", "FrozenFrames", "StartupDelay_ms",
       "StallCount", "StallDuration_ms", "RebufferingRatio",
       "QualitySwitchCount", "QualityUpSwitchCount", "QualityDownSwitchCount",
@@ -81,6 +83,7 @@ export function generateQoeCsv(logs: LogEntry[]): string {
       return [
         log.timestamp,
         log.streamTitle,
+        log.segmentLabel,
         stats.bitrateKbps,
         stats.averageBitrateKbps.toFixed(2),
         stats.resolutionLabel,
@@ -119,10 +122,14 @@ interface DetailedLogParams {
 
 export function generateDetailedLog(params: DetailedLogParams): string {
   const separator = "=".repeat(70);
+  const segmentLabel = params.logs[0]?.segmentLabel ?? "—";
+  const manifestUrl = params.logs[0]?.manifestUrl ?? "—";
   const sections = [
     separator,
     "  ADTUBE STREAM ANALYZER - MEASUREMENT LOG",
     `  Stream: ${params.streamTitle}`,
+    `  Segment: ${segmentLabel}`,
+    `  Manifest: ${manifestUrl}`,
     `  Generated: ${new Date().toISOString()}`,
     separator,
     "",
@@ -169,7 +176,7 @@ export function generateDetailedLog(params: DetailedLogParams): string {
     "",
     "-- EVENT LOG --",
     ...params.logs.map(
-      (log) => `  [${log.timestamp}] [${log.level}] [${log.statsSnapshot.protocolLabel}] ${log.message}`,
+      (log) => `  [${log.timestamp}] [${log.level}] [${log.segmentLabel}] [${log.statsSnapshot.protocolLabel}] ${log.message}`,
     ),
     "",
     separator,

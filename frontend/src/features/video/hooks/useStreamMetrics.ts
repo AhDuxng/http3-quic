@@ -102,6 +102,7 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
       req,
       event,
       previousSegmentDurationMs: previousSegmentDurationRef.current,
+      resourcePrefix: protocolUrlFragment,
     });
     const { bytesLoaded, durationMs } = segmentMetrics;
     if (bytesLoaded === 0) return { bytesLoaded: 0, durationMs: 0 };
@@ -134,7 +135,7 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
     }));
 
     return { bytesLoaded, durationMs };
-  }, [updateStats]);
+  }, [protocolUrlFragment, updateStats]);
 
   const incrementQualitySwitch = useCallback((direction: QualitySwitchDirection = "unknown") => {
     // QoE: tinh so lan doi chat luong, gom tong so lan va so lan tang/giam chat luong.

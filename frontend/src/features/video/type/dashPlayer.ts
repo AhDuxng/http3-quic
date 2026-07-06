@@ -15,6 +15,9 @@ export interface LogEntry {
   isAutoQuality: boolean;
   activeScenarioLabel: string;
   streamTitle: string;
+  manifestUrl: string;
+  segmentSeconds: number | null;
+  segmentLabel: string;
 }
 
 export interface StreamStats {
@@ -61,6 +64,7 @@ export interface UseDashPlayerArgs {
   manifestUrl: string | null | undefined;
   scenarios: readonly NetworkScenario[];
   streamTitle?: string;
+  segmentSeconds?: number | null;
 }
 
 export interface UseDashPlayerResult {

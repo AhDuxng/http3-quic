@@ -12,6 +12,7 @@ import { StreamTelemetryCard } from "./StreamTelemetryCard";
 interface VideoPlayerProps {
   manifestUrl: string;
   streamTitle?: string;
+  segmentSeconds?: number | null;
   variant?: "full" | "compact";
   onProtocolChange?: (protocol: string) => void;
 }
@@ -23,7 +24,7 @@ export interface VideoPlayerHandle {
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
-  ({ manifestUrl, streamTitle = "Video", variant = "full", onProtocolChange }, ref) => {
+  ({ manifestUrl, streamTitle = "Video", segmentSeconds = null, variant = "full", onProtocolChange }, ref) => {
     const {
       videoRef, representations, isPlaying, stats,
       activeScenarioId, qualitySelection, isAutoQuality,
@@ -31,7 +32,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       play, pause,
       getStatsSnapshot,
       replayCount, currentReplay, isReplayDone, setReplayCount,
-    } = useDashPlayer({ manifestUrl, scenarios: networkScenarios, streamTitle });
+    } = useDashPlayer({ manifestUrl, scenarios: networkScenarios, streamTitle, segmentSeconds });
 
     useImperativeHandle(ref, () => ({ reset: resetStats, play, pause }), [pause, play, resetStats]);
 

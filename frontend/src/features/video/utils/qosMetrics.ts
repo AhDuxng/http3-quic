@@ -22,12 +22,15 @@ export interface SegmentQosMetrics {
   connectionSetupMs: number;
 }
 
-export function getLatestResourceTiming(url?: string): PerformanceResourceTiming | null {
+export function getLatestResourceTiming(url?: string, resourcePrefix?: string): PerformanceResourceTiming | null {
   if (!url) return null;
   try {
     const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
     for (let index = entries.length - 1; index >= 0; index -= 1) {
       const entry = entries[index];
+      if (resourcePrefix && !entry.name.includes(resourcePrefix) && !url.includes(resourcePrefix)) {
+        continue;
+      }
       if (entry.name.includes(url) || url.includes(entry.name)) return entry;
     }
   } catch {
@@ -92,8 +95,9 @@ export function calculateSegmentQosMetrics(args: {
   req: any;
   event: any;
   previousSegmentDurationMs: number | null;
+  resourcePrefix?: string;
 }): SegmentQosMetrics {
-  const resourceTiming = getLatestResourceTiming(args.req?.url);
+  const resourceTiming = getLatestResourceTiming(args.req?.url, args.resourcePrefix);
   const requestStartMs = getRequestTime(args.req?.startDate)
     || getRequestTime(args.req?.requestStartDate)
     || getRequestTime(args.req?.firstByteDate);
@@ -141,7 +145,7 @@ export function calculateSegmentQosMetrics(args: {
 
   // QoS: do tre HTTP/TTFB xap xi RTT o tang ung dung, khong phai RTT TCP/IP that.
   let ttfbMs = resourceTiming ? getPositiveDelta(resourceTiming.responseStart, resourceTiming.requestStart) : 0;
-  if (ttfbMs === 0 && args.req?.url) ttfbMs = getTtfbFromPerformanceApi(args.req.url);
+  if (ttfbMs === 0 && args.req?.url) ttfbMs = getTtfbFromPerformanceApi(args.req.url, args.resourcePrefix);
   if (ttfbMs === 0 && args.req?.firstByteDate && requestStartMs > 0) {
     const firstByteTime = getRequestTime(args.req.firstByteDate);
     if (firstByteTime > requestStartMs) ttfbMs = Math.round(firstByteTime - requestStartMs);
