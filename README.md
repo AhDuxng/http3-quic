@@ -26,6 +26,44 @@ http3-quic/
 - Mở port `80/tcp`, `443/tcp`, `443/udp`
 - Domain trỏ về server nếu deploy public
 
+## Chuẩn bị video
+
+Repo không kèm thư mục `video/`. Caddy mount thư mục này vào `/srv/video`, frontend gọi video theo dạng:
+
+```text
+/video/<VideoName>/<segment>sec/<VideoName>_<segment>s_simple_2014_05_09.mpd
+```
+
+Ví dụ file cần có:
+
+```text
+video/BigBuckBunny/4sec/BigBuckBunny_4s_simple_2014_05_09.mpd
+video/BigBuckBunny/4sec/*.m4s
+```
+
+Tải nhanh:
+
+```bash
+mkdir -p video/BigBuckBunny/4sec
+wget -r -np -nH --cut-dirs=4 -A "*.mpd,*.m4s" \
+  -P video/BigBuckBunny/4sec \
+  http://ftp.itec.aau.at/datasets/DASHDataset2014/BigBuckBunny/4sec/
+```
+
+Nếu tải video ở máy khác rồi đẩy lên server:
+
+```bash
+rsync -avz --progress --partial ./video/ <user>@<server-ip>:/path/to/http3-quic/video/
+```
+
+Các video app đang dùng:
+
+```text
+BigBuckBunny: 1sec, 2sec, 4sec, 6sec
+OfForestAndMen: 1sec, 2sec, 4sec, 6sec
+TearsOfSteel: 1sec, 2sec, 4sec, 6sec
+```
+
 ## Chạy bằng Docker
 
 ```bash
@@ -50,44 +88,6 @@ Sau đó chạy lại:
 
 ```bash
 docker compose up -d --build
-```
-
-## Chuẩn bị video
-
-Repo không kèm thư mục `video/`. Caddy mount thư mục này vào `/srv/video`, frontend gọi video theo dạng:
-
-```text
-/video/<VideoName>/<segment>sec/<VideoName>_<segment>s_simple_2014_05_09.mpd
-```
-
-Ví dụ file cần có:
-
-```text
-video/BigBuckBunny/4sec/BigBuckBunny_4s_simple_2014_05_09.mpd
-video/BigBuckBunny/4sec/*.m4s
-```
-
-Tải nhanh một bộ để test:
-
-```bash
-mkdir -p video/BigBuckBunny/4sec
-wget -r -np -nH --cut-dirs=4 -A "*.mpd,*.m4s" \
-  -P video/BigBuckBunny/4sec \
-  http://ftp.itec.aau.at/datasets/DASHDataset2014/BigBuckBunny/4sec/
-```
-
-Nếu tải video ở máy khác rồi đẩy lên server:
-
-```bash
-rsync -avz --progress --partial ./video/ <user>@<server-ip>:/path/to/http3-quic/video/
-```
-
-Các video app đang dùng:
-
-```text
-BigBuckBunny: 1sec, 2sec, 4sec, 6sec
-OfForestAndMen: 1sec, 2sec, 4sec, 6sec
-TearsOfSteel: 1sec, 2sec, 4sec, 6sec
 ```
 
 ## Kiểm tra
