@@ -18,7 +18,7 @@
     }
 
     handle /api/* {
-        reverse_proxy backend:3000
+        reverse_proxy backend:{$PORT:3000}
     }
 
     handle /* {

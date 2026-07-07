@@ -4,7 +4,7 @@
     }
 }
 
-video.duxng.io.vn, localhost, 127.0.0.1 {
+{$DOMAIN}, localhost, 127.0.0.1 {
     tls internal
     encode zstd gzip
 
@@ -24,7 +24,7 @@ video.duxng.io.vn, localhost, 127.0.0.1 {
     }
 
     handle /api/* {
-        reverse_proxy 127.0.0.1:3000
+        reverse_proxy 127.0.0.1:{$PORT:3000}
     }
 
     handle {
