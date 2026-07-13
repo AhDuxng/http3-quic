@@ -38,14 +38,17 @@ Ví dụ file cần có:
 
 ```text
 video/BigBuckBunny/4sec/BigBuckBunny_4s_simple_2014_05_09.mpd
-video/BigBuckBunny/4sec/*.m4s
+video/BigBuckBunny/4sec/bunny_378355bps/BigBuckBunny_4s_init.mp4
+video/BigBuckBunny/4sec/bunny_378355bps/BigBuckBunny_4s1.m4s
 ```
+
+File `*_simple_*.mpd` sẽ trỏ tới các thư mục bitrate con như `bunny_378355bps/`. Mỗi thư mục bitrate cần có cả file init `*_init.mp4` và các segment `*.m4s`; nếu thiếu `*_init.mp4`, dash.js sẽ báo lỗi kiểu `Player error: ..._init.mp4 is not available`.
 
 Tải nhanh:
 
 ```bash
 mkdir -p video/BigBuckBunny/4sec
-wget -r -np -nH --cut-dirs=4 -A "*.mpd,*.m4s" \
+wget -r -np -nH --cut-dirs=4 -A "*.mpd,*.m4s,*.mp4" \
   -P video/BigBuckBunny/4sec \
   http://ftp.itec.aau.at/datasets/DASHDataset2014/BigBuckBunny/4sec/
 ```
