@@ -21,7 +21,6 @@ interface DashVideoStageProps {
   qualitySelection: QualitySelection;
   isAutoQuality: boolean;
   isPlaying: boolean;
-  isFragmentLoading: boolean;
   isReplayDone: boolean;
   replayCount: number;
   currentReplay: number;
@@ -53,7 +52,6 @@ export function DashVideoStage({
   qualitySelection,
   isAutoQuality,
   isPlaying,
-  isFragmentLoading,
   isReplayDone,
   replayCount,
   currentReplay,
@@ -88,21 +86,6 @@ export function DashVideoStage({
           {stats.resolutionLabel} @ {formatBitrateKbps(stats.bitrateKbps)}
         </span>
       </VideoOverlayBadge>
-
-      <div
-        className={`pointer-events-none absolute top-12 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg border px-3 py-2 text-center text-xs font-bold tracking-wide shadow-lg sm:text-sm ${
-          isFragmentLoading
-            ? "border-green-300 bg-green-600/95 text-white"
-            : "border-white/40 bg-black/85 text-white"
-        }`}
-        style={{ zIndex: 30 }}
-        role="status"
-        aria-live="polite"
-      >
-        {isFragmentLoading
-          ? "NETWORK ACTIVE — HANDOVER NOW"
-          : "WAITING FOR NEXT SEGMENT"}
-      </div>
 
       <div className="absolute bottom-14 left-3 flex items-center gap-1.5">
         <div className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] font-mono font-semibold ${

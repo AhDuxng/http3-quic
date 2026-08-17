@@ -58,7 +58,6 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         qualitySelection={qualitySelection}
         isAutoQuality={isAutoQuality}
         isPlaying={isPlaying}
-        isFragmentLoading={isFragmentLoading}
         isReplayDone={isReplayDone}
         replayCount={replayCount}
         currentReplay={currentReplay}
@@ -69,10 +68,27 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       />
     );
 
+    const networkActivityCard = (
+      <div
+        className={`rounded-lg border px-4 py-3 text-center text-sm font-bold tracking-wide shadow-sm ${
+          isFragmentLoading
+            ? "border-green-300 bg-green-50 text-green-800"
+            : "border-slate-200 bg-white text-slate-500"
+        }`}
+        role="status"
+        aria-live="polite"
+      >
+        {isFragmentLoading
+          ? "NETWORK ACTIVE — HANDOVER NOW"
+          : "WAITING FOR NEXT SEGMENT"}
+      </div>
+    );
+
     if (variant === "compact") {
       return (
         <div className="flex flex-col gap-3 min-w-0">
           {videoStage}
+          {networkActivityCard}
           <ReplayControlPanel
             replayCount={replayCount}
             currentReplay={currentReplay}
@@ -102,6 +118,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         <div className="flex flex-col lg:flex-row gap-4 w-full">
           <div className="flex flex-col flex-1 min-w-0">
             {videoStage}
+            <div className="mt-3">
+              {networkActivityCard}
+            </div>
 
             <ReplayControlPanel
               replayCount={replayCount}
