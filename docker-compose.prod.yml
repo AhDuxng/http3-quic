@@ -1,6 +1,6 @@
 services:
   caddy:
-    image: caddy:latest
+    image: caddy:2.11.4-alpine
     container_name: caddy_server
     restart: unless-stopped
     cap_add:
@@ -27,8 +27,7 @@ services:
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
-    networks:
-      - app-network
+    network_mode: "service:caddy"
     environment:
       - HOST=${HOST:-0.0.0.0}
       - PORT=${PORT:-3000}

@@ -2,6 +2,7 @@ export type NetworkScenarioId =
   | "fiber"
   | "mobile4g"
   | "mobile4g_slow"
+  | "migration_test"
   | "umts3g"
   | "slow3g"
   | "edge2g"

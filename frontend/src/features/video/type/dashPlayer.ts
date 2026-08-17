@@ -71,6 +71,7 @@ export interface UseDashPlayerResult {
   videoRef: RefObject<HTMLVideoElement | null>;
   representations: Representation[];
   isPlaying: boolean;
+  isFragmentLoading: boolean;
   stats: StreamStats;
   activeScenarioId: NetworkScenarioId;
   qualitySelection: QualitySelection;

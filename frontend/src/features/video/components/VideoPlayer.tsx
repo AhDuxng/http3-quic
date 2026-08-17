@@ -26,7 +26,7 @@ export interface VideoPlayerHandle {
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   ({ manifestUrl, streamTitle = "Video", segmentSeconds = null, variant = "full", onProtocolChange }, ref) => {
     const {
-      videoRef, representations, isPlaying, stats,
+      videoRef, representations, isPlaying, isFragmentLoading, stats,
       activeScenarioId, qualitySelection, isAutoQuality,
       logs, applyScenario, setQualitySelection, togglePlayPause, resetStats,
       play, pause,
@@ -58,6 +58,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         qualitySelection={qualitySelection}
         isAutoQuality={isAutoQuality}
         isPlaying={isPlaying}
+        isFragmentLoading={isFragmentLoading}
         isReplayDone={isReplayDone}
         replayCount={replayCount}
         currentReplay={currentReplay}

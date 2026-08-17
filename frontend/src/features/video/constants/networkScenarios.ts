@@ -32,6 +32,15 @@ export const networkScenarios: readonly NetworkScenario[] = [
     description: "<= 5000 kbps, delay 100ms",
   },
   {
+    id: "migration_test",
+    label: "QUIC Migration Test",
+    speedLabel: "2.5 Mbps",
+    maxBitrateKbps: 2500,
+    delayMs: 20,
+    lossPercent: 0,
+    description: "Controlled profile for Wi-Fi to cellular migration",
+  },
+  {
     id: "umts3g",
     label: "3G / UMTS Legacy",
     speedLabel: "1.5 Mbps",
@@ -64,6 +73,7 @@ export const scenarioIcons: Record<NetworkScenarioId, ComponentType<{ className?
   fiber:          FaWifi,
   mobile4g:       FaMobileAlt,
   mobile4g_slow:  FaMobileAlt,
+  migration_test: FaMobileAlt,
   umts3g:         FaBroadcastTower,
   slow3g:         FaBroadcastTower,
   edge2g:         FaBroadcastTower,

@@ -60,6 +60,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   const [isAutoQuality, setIsAutoQuality] = useState(true);
   const [activeScenarioId, setActiveScenarioId] = useState<NetworkScenarioId>(scenarios[0]?.id ?? "fiber");
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isFragmentLoading, setIsFragmentLoading] = useState(false);
   const [stats, setStats] = useState<StreamStats>(defaultStats);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const statsRef = useRef<StreamStats>(defaultStats);
@@ -168,6 +169,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     setIsReplayDone(false);
     isReplayDoneRef.current = false;
     setIsPlaying(false);
+    setIsFragmentLoading(false);
   }, [metrics, stall]);
 
   const resetStats = useCallback(() => {
@@ -194,6 +196,22 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     const player = MediaPlayer().create();
     playerRef.current = player;
     const isCurrentSession = () => sessionId === playerSessionIdRef.current && playerRef.current === player;
+    const activeFragmentRequests = new Set<unknown>();
+    const markFragmentFinished = (request: unknown) => {
+      activeFragmentRequests.delete(request);
+      if (activeFragmentRequests.size === 0) setIsFragmentLoading(false);
+    };
+    const runId = crypto.randomUUID();
+    let requestId = 0;
+    player.addRequestInterceptor(async (request) => {
+      if (!request.url.includes("/video/")) return request;
+
+      const requestUrl = new URL(request.url, window.location.href);
+      requestUrl.searchParams.set("exp_run", runId);
+      requestUrl.searchParams.set("exp_req", String(++requestId));
+      request.url = requestUrl.toString();
+      return request;
+    });
     player.initialize(videoRef.current ?? undefined, manifestUrl, false);
     player.updateSettings({
       streaming: { abr: { autoSwitchBitrate: { video: true }, initialBitrate: { video: 500 } } },
@@ -257,6 +275,9 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     const onFragmentStarted = (event: any) => {
       if (!isCurrentSession()) return;
       const request = event?.request;
+      activeFragmentRequests.add(request);
+      setIsFragmentLoading(true);
+      addSessionLog("NET", `SEGMENT START: ${request?.url ?? "unknown"}`);
       if (request?.mediaType && request.mediaType !== "video") return;
       const requestType = String(request?.type ?? "").toLowerCase();
       if (requestType && !requestType.includes("media")) return;
@@ -267,6 +288,8 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       try {
         if (!isCurrentSession()) return;
         const request = event?.request;
+        markFragmentFinished(request);
+        addSessionLog("NET", `SEGMENT COMPLETE: ${request?.url ?? "unknown"}`);
         if (request?.mediaType && request.mediaType !== "video") return;
         const requestType = String(request?.type ?? "").toLowerCase();
         if (requestType && !requestType.includes("media")) return;
@@ -287,6 +310,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     const onFragmentAbandoned = (event: any) => {
       if (!isCurrentSession()) return;
       const request = event?.request;
+      markFragmentFinished(request);
       if (request?.mediaType && request.mediaType !== "video") return;
       metrics.recordFragmentAbandon();
       addSessionLog("WARN", "Segment request abandoned by ABR.");
@@ -294,6 +318,8 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
 
     const onError = (event: any) => {
       if (!isCurrentSession()) return;
+      activeFragmentRequests.clear();
+      setIsFragmentLoading(false);
       const errorCode = event?.error?.code ?? event?.error?.data?.code;
       const message = event?.error?.message ?? event?.error?.code ?? "Unknown";
       if (String(message).toLowerCase().includes("fragment") || errorCode === 17 || errorCode === 18) {
@@ -423,6 +449,8 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       video?.removeEventListener("playing", onPlaying);
       video?.removeEventListener("ended", onEnded);
       player.off(MediaPlayer.events.PLAYBACK_ENDED, onEnded);
+      activeFragmentRequests.clear();
+      setIsFragmentLoading(false);
       try {
         player.destroy();
       } finally {
@@ -495,7 +523,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   }, []);
 
   return {
-    videoRef, representations, isPlaying, stats, activeScenarioId,
+    videoRef, representations, isPlaying, isFragmentLoading, stats, activeScenarioId,
     qualitySelection, isAutoQuality, logs,
     applyScenario, setQualitySelection, togglePlayPause, play, pause, resetStats,
     getStatsSnapshot,
