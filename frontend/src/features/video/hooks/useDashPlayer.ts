@@ -13,6 +13,54 @@ import { getRepBitrateKbps, getResolutionLabel, useStreamMetrics } from "./useSt
 import { useStallTracker } from "./useStallTracker";
 
 const defaultReplayCount = 1;
+const dashRetryPolicy = {
+  intervalsMs: {
+    manifest: 1_000,
+    initializationSegment: 1_500,
+    mediaSegment: 1_500,
+  },
+  attempts: {
+    manifest: 5,
+    initializationSegment: 5,
+    mediaSegment: 6,
+  },
+} as const;
+
+const dashFragmentErrorCodes = new Set([17, 18, 27]);
+
+function getRequestUrl(request: any) {
+  return request?.url ?? "unknown";
+}
+
+function getRequestType(request: any) {
+  return String(request?.type ?? "").toLowerCase();
+}
+
+function isVideoMediaRequest(request: any) {
+  if (request?.mediaType && request.mediaType !== "video") return false;
+  const requestType = getRequestType(request);
+  return !requestType || requestType.includes("media");
+}
+
+function isFragmentFailure(errorCode: unknown, message: unknown) {
+  return dashFragmentErrorCodes.has(Number(errorCode))
+    || String(message ?? "").toLowerCase().includes("fragment");
+}
+
+function formatFragmentFailureDetails(event: any) {
+  const status = Number(
+    event?.error?.data?.response?.status
+      ?? event?.response?.status
+      ?? event?.request?.responsecode,
+  );
+  const retryAttempts = Number(event?.request?.retryAttempts);
+  const details: string[] = [];
+  if (Number.isFinite(status) && status > 0) details.push(`HTTP ${status}`);
+  if (Number.isFinite(retryAttempts) && retryAttempts > 0) {
+    details.push(`${retryAttempts} retries exhausted`);
+  }
+  return details.length > 0 ? ` (${details.join(", ")})` : "";
+}
 
 function parseSegmentSecondsFromManifest(manifestUrl: string | null | undefined) {
   const segmentDirectoryMatch = manifestUrl?.match(/\/(\d+)sec\//);
@@ -197,9 +245,15 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     playerRef.current = player;
     const isCurrentSession = () => sessionId === playerSessionIdRef.current && playerRef.current === player;
     const activeFragmentRequests = new Set<unknown>();
+    const failedFragmentRequests = new Set<unknown>();
     const markFragmentFinished = (request: unknown) => {
       activeFragmentRequests.delete(request);
       if (activeFragmentRequests.size === 0) setIsFragmentLoading(false);
+    };
+    const recordFragmentFailureOnce = (request: unknown) => {
+      if (request && failedFragmentRequests.has(request)) return;
+      if (request) failedFragmentRequests.add(request);
+      metrics.recordFragmentFailure();
     };
     const runId = crypto.randomUUID();
     let requestId = 0;
@@ -212,11 +266,27 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       request.url = requestUrl.toString();
       return request;
     });
-    player.initialize(videoRef.current ?? undefined, manifestUrl, false);
     player.updateSettings({
-      streaming: { abr: { autoSwitchBitrate: { video: true }, initialBitrate: { video: 500 } } },
+      streaming: {
+        retryIntervals: {
+          MPD: dashRetryPolicy.intervalsMs.manifest,
+          MediaSegment: dashRetryPolicy.intervalsMs.mediaSegment,
+          InitializationSegment: dashRetryPolicy.intervalsMs.initializationSegment,
+        },
+        retryAttempts: {
+          MPD: dashRetryPolicy.attempts.manifest,
+          MediaSegment: dashRetryPolicy.attempts.mediaSegment,
+          InitializationSegment: dashRetryPolicy.attempts.initializationSegment,
+        },
+        abr: { autoSwitchBitrate: { video: true }, initialBitrate: { video: 500 } },
+      },
     });
+    player.initialize(videoRef.current ?? undefined, manifestUrl, false);
     addSessionLog("SYS", `${streamTitle}: player initialized. Loading manifest...`);
+    addSessionLog(
+      "SYS",
+      `Retry policy: MPD ${dashRetryPolicy.attempts.manifest}, init ${dashRetryPolicy.attempts.initializationSegment}, media ${dashRetryPolicy.attempts.mediaSegment}.`,
+    );
 
     const onManifestLoaded = () => {
       if (!isCurrentSession()) return;
@@ -277,10 +347,8 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       const request = event?.request;
       activeFragmentRequests.add(request);
       setIsFragmentLoading(true);
-      addSessionLog("NET", `SEGMENT START: ${request?.url ?? "unknown"}`);
-      if (request?.mediaType && request.mediaType !== "video") return;
-      const requestType = String(request?.type ?? "").toLowerCase();
-      if (requestType && !requestType.includes("media")) return;
+      addSessionLog("NET", `SEGMENT START: ${getRequestUrl(request)}`);
+      if (!isVideoMediaRequest(request)) return;
       metrics.recordFragmentRequest();
     };
 
@@ -289,10 +357,17 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         if (!isCurrentSession()) return;
         const request = event?.request;
         markFragmentFinished(request);
-        addSessionLog("NET", `SEGMENT COMPLETE: ${request?.url ?? "unknown"}`);
-        if (request?.mediaType && request.mediaType !== "video") return;
-        const requestType = String(request?.type ?? "").toLowerCase();
-        if (requestType && !requestType.includes("media")) return;
+        if (event?.error) {
+          addSessionLog(
+            "ERRO",
+            `SEGMENT FAILED: ${getRequestUrl(request)}${formatFragmentFailureDetails(event)}`,
+          );
+          if (isVideoMediaRequest(request)) recordFragmentFailureOnce(request);
+          return;
+        }
+
+        addSessionLog("NET", `SEGMENT COMPLETE: ${getRequestUrl(request)}`);
+        if (!isVideoMediaRequest(request)) return;
 
         const { bytesLoaded, durationMs } = metrics.processSegment(event?.request, event);
         const now = Date.now();
@@ -311,21 +386,28 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       if (!isCurrentSession()) return;
       const request = event?.request;
       markFragmentFinished(request);
-      if (request?.mediaType && request.mediaType !== "video") return;
+      if (!isVideoMediaRequest(request)) return;
       metrics.recordFragmentAbandon();
-      addSessionLog("WARN", "Segment request abandoned by ABR.");
+      addSessionLog("WARN", `SEGMENT ABANDONED: ${getRequestUrl(request)} (ABR)`);
     };
 
     const onError = (event: any) => {
       if (!isCurrentSession()) return;
-      activeFragmentRequests.clear();
-      setIsFragmentLoading(false);
-      const errorCode = event?.error?.code ?? event?.error?.data?.code;
-      const message = event?.error?.message ?? event?.error?.code ?? "Unknown";
-      if (String(message).toLowerCase().includes("fragment") || errorCode === 17 || errorCode === 18) {
-        metrics.recordFragmentFailure();
+      const error = event?.error;
+      const request = error?.data?.request;
+      if (request) {
+        markFragmentFinished(request);
+      } else {
+        activeFragmentRequests.clear();
+        setIsFragmentLoading(false);
       }
-      addSessionLog("ERRO", `Player error: ${event?.error?.message ?? event?.error?.code ?? "Unknown"}`);
+      const errorCode = error?.code ?? error?.data?.code;
+      const message = error?.message ?? error?.code ?? "Unknown";
+      if (isFragmentFailure(errorCode, message) && isVideoMediaRequest(request)) {
+        recordFragmentFailureOnce(request);
+      }
+      const codeLabel = errorCode === undefined || errorCode === null ? "" : ` [code ${errorCode}]`;
+      addSessionLog("ERRO", `Player error${codeLabel}: ${message}`);
     };
 
     const onBufferEmpty = (event: any) => {
