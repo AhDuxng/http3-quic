@@ -639,7 +639,18 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       setIsAutoQuality(true); isAutoQualityRef.current = true;
       setQualitySelectionState("auto");
       player.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: true }, maxBitrate: { video: -1 } } } });
-      addLog("INFO", `Applied: ${scenario.label} via server-egress tc.`, undefined, sessionId);
+      const usesTrafficShaping =
+        (scenario.maxBitrateKbps ?? 0) > 0 ||
+        (scenario.delayMs ?? 0) > 0 ||
+        (scenario.lossPercent ?? 0) > 0;
+      addLog(
+        "INFO",
+        usesTrafficShaping
+          ? `Applied: ${scenario.label} via server-egress tc/netem.`
+          : `Applied: ${scenario.label}; server tc/netem is cleared.`,
+        undefined,
+        sessionId,
+      );
       if (scenario.id === "migration_test") {
         addLog(
           "WARN",

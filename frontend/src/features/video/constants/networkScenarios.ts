@@ -5,6 +5,15 @@ import type { NetworkScenarioId } from "../../../type/video";
 
 export const networkScenarios: readonly NetworkScenario[] = [
   {
+    id: "real_network",
+    label: "Real Network (No TC)",
+    speedLabel: "Actual",
+    maxBitrateKbps: null,
+    delayMs: 0,
+    lossPercent: 0,
+    description: "Mang that; go bo tc/netem, khong gioi han, delay hoac loss nhan tao",
+  },
+  {
     id: "fiber",
     label: "Fiber Optic",
     speedLabel: "100+ Mbps",
@@ -71,6 +80,7 @@ export const networkScenarios: readonly NetworkScenario[] = [
 
 export const scenarioIcons: Record<NetworkScenarioId, ComponentType<{ className?: string }>> = {
   unconfigured:   FaCog,
+  real_network:   FaWifi,
   fiber:          FaWifi,
   mobile4g:       FaMobileAlt,
   mobile4g_slow:  FaMobileAlt,

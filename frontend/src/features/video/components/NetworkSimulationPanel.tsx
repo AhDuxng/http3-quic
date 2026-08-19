@@ -1,4 +1,4 @@
-import { createElement, memo, useMemo } from "react";
+import { createElement, memo } from "react";
 import type { Representation } from "dashjs";
 import { FaNetworkWired, FaEdit, FaCheck } from "react-icons/fa";
 import { networkScenarios, scenarioIcons } from "../constants/networkScenarios";
@@ -32,11 +32,6 @@ function NetworkSimulationPanelComponent({
     applyCustomNet,
     toggleCustomExpanded,
   } = useNetworkScenarioForm({ applyScenario });
-
-  const activeScenario = useMemo(
-    () => networkScenarios.find((scenario) => scenario.id === activeScenarioId) ?? networkScenarios[0],
-    [activeScenarioId],
-  );
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shrink-0">
@@ -94,8 +89,8 @@ function NetworkSimulationPanelComponent({
                 })}
                 <span className={`flex-1 text-sm ${isActive ? "text-blue-700 font-semibold" : "text-slate-700"}`}>
                   {scenario.label}
-                  {isActive && activeScenario?.maxBitrateKbps == null && (
-                    <span className="ml-1 text-[10px] text-emerald-500 font-normal">(Default)</span>
+                  {isActive && scenario.id === "real_network" && (
+                    <span className="ml-1 text-[10px] text-emerald-500 font-normal">(No TC)</span>
                   )}
                 </span>
                 <span className={`text-[11px] font-mono ${isActive ? "text-blue-500 font-semibold" : "text-slate-400"}`}>

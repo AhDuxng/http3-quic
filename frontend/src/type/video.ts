@@ -1,5 +1,6 @@
 export type NetworkScenarioId =
   | "unconfigured"
+  | "real_network"
   | "fiber"
   | "mobile4g"
   | "mobile4g_slow"

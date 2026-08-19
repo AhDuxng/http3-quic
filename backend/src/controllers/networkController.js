@@ -2,8 +2,8 @@ const { execSync } = require("child_process");
 
 function runCommand(command) {
   try {
-    execSync(command, { stdio: "pipe" });
-    return { ok: true };
+    const stdout = execSync(command, { stdio: "pipe" }).toString().trim();
+    return { ok: true, output: stdout };
   } catch (error) {
     const stderr = error.stderr ? error.stderr.toString().trim() : "";
     const stdout = error.stdout ? error.stdout.toString().trim() : "";
@@ -12,7 +12,20 @@ function runCommand(command) {
 }
 
 function clearTcRules() {
-  runCommand("tc qdisc del dev eth0 root 2>/dev/null || true");
+  const result = runCommand("tc qdisc del dev eth0 root");
+  if (!result.ok && !/No such file|Cannot delete qdisc with handle of zero/i.test(result.error)) {
+    return result;
+  }
+  return { ok: true };
+}
+
+function verifyNetemIsCleared() {
+  const result = runCommand("tc qdisc show dev eth0");
+  if (!result.ok) return result;
+  if (/\bnetem\b/i.test(result.output || "")) {
+    return { ok: false, error: `netem van con ton tai: ${result.output}` };
+  }
+  return { ok: true };
 }
 
 function applyNetworkScenario(req, res) {
@@ -28,15 +41,32 @@ function applyNetworkScenario(req, res) {
   }
 
   try {
-    clearTcRules();
+    const clearResult = clearTcRules();
+    if (!clearResult.ok) {
+      return res.status(500).json({
+        error: "khong the xoa tc/netem",
+        detail: clearResult.error,
+      });
+    }
 
     const hasBitrate = maxBitrateKbps && Number(maxBitrateKbps) > 0;
     const hasDelay = delayMs && Number(delayMs) > 0;
     const hasLoss = lossPercent && Number(lossPercent) > 0;
 
     if (!hasBitrate && !hasDelay && !hasLoss) {
+      const verification = verifyNetemIsCleared();
+      if (!verification.ok) {
+        return res.status(500).json({
+          error: "tc/netem chua duoc xoa hoan toan",
+          detail: verification.error,
+        });
+      }
       console.log("[Network] Cleared - Back to Normal (xoa het tc rules)");
-      return res.json({ success: true, message: "Normal - da xoa gioi han mang" });
+      return res.json({
+        success: true,
+        message: "Real network - tc/netem da duoc xoa",
+        applied: { maxBitrateKbps: null, delayMs: 0, lossPercent: 0 },
+      });
     }
 
     let netemArgs = "";
