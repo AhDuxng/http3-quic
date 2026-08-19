@@ -38,7 +38,7 @@ export const networkScenarios: readonly NetworkScenario[] = [
     maxBitrateKbps: 2500,
     delayMs: 20,
     lossPercent: 0,
-    description: "Controlled profile for Wi-Fi to cellular migration",
+    description: "Server-egress profile only; Wi-Fi/cellular switching must be externally scheduled",
   },
   {
     id: "umts3g",
@@ -70,6 +70,7 @@ export const networkScenarios: readonly NetworkScenario[] = [
 ] as const;
 
 export const scenarioIcons: Record<NetworkScenarioId, ComponentType<{ className?: string }>> = {
+  unconfigured:   FaCog,
   fiber:          FaWifi,
   mobile4g:       FaMobileAlt,
   mobile4g_slow:  FaMobileAlt,

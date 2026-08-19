@@ -28,10 +28,10 @@ export function useVideoPlayerViewState({
   const activeScenario: NetworkScenario = useMemo(
     () => networkScenarios.find((scenario) => scenario.id === activeScenarioId) ?? {
       id: "custom",
-      label: "Custom",
-      speedLabel: "No limit",
+      label: "Not applied",
+      speedLabel: "Unknown",
       maxBitrateKbps: null,
-      description: "Custom",
+      description: "No network profile has been confirmed by the backend",
     },
     [activeScenarioId],
   );

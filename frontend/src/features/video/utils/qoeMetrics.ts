@@ -129,9 +129,9 @@ export function calculateFrozenFrame(args: {
   };
 }
 
-export function calculateRebufferingRatio(currentTimeSec: number, stallAccumulatedMs: number) {
+export function calculateRebufferingRatio(totalPlaybackSec: number, stallAccumulatedMs: number) {
   // QoE: ty le rebuffering = tong thoi gian stall / (thoi gian dang phat + tong thoi gian stall).
-  const playbackMs = currentTimeSec * 1000;
+  const playbackMs = totalPlaybackSec * 1000;
   const measuredSessionMs = playbackMs + stallAccumulatedMs;
   return measuredSessionMs > 0
     ? Math.round((stallAccumulatedMs / measuredSessionMs) * 10000) / 10000

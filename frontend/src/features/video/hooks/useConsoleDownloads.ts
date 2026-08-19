@@ -55,18 +55,24 @@ export function useConsoleDownloads({
     );
   }, [logs, filter]);
 
-  const downloadCsv = useCallback((kind: "logs" | "qos" | "qoe") => {
+  const downloadCsvBundle = useCallback(() => {
     if (logs.length === 0) return;
+    // Capture one immutable array and one timestamp so all CSVs have exactly
+    // the same events and can be joined by EventId.
+    const snapshotLogs = logs.slice();
+    const timestamp = createTimestamp();
     const csvByKind = {
       logs: generateLogsCsv,
       qos: generateQosCsv,
       qoe: generateQoeCsv,
     };
-    downloadFile(
-      csvByKind[kind](logs),
-      `adtube-${kind}-${filenameSlug}-${createTimestamp()}.csv`,
-      "text/csv;charset=utf-8",
-    );
+    for (const kind of ["logs", "qos", "qoe"] as const) {
+      downloadFile(
+        csvByKind[kind](snapshotLogs),
+        `adtube-${kind}-${filenameSlug}-${timestamp}.csv`,
+        "text/csv;charset=utf-8",
+      );
+    }
   }, [filenameSlug, logs]);
 
   const downloadText = useCallback(() => {
@@ -96,7 +102,7 @@ export function useConsoleDownloads({
     filter,
     setFilter,
     filteredLogs,
-    downloadCsv,
+    downloadCsvBundle,
     downloadText,
   };
 }

@@ -31,7 +31,7 @@ function ConsoleLogsPanelComponent({
     filter,
     setFilter,
     filteredLogs,
-    downloadCsv,
+    downloadCsvBundle,
     downloadText,
   } = useConsoleDownloads({
     logs,
@@ -50,14 +50,8 @@ function ConsoleLogsPanelComponent({
         meta={<span className="text-[10px] text-slate-400 font-mono">({filteredLogs.length}/{logs.length})</span>}
         actions={(
           <div className="flex items-center gap-1.5">
-            <button onClick={() => downloadCsv("logs")} title="Download logs CSV" className="h-6 min-w-7 px-1.5 rounded border border-slate-100 text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors">
-              <span className="text-[9px] font-bold">LOG</span>
-            </button>
-            <button onClick={() => downloadCsv("qos")} title="Download QoS CSV" className="h-6 min-w-7 px-1.5 rounded border border-slate-100 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors">
-              <span className="text-[9px] font-bold">QoS</span>
-            </button>
-            <button onClick={() => downloadCsv("qoe")} title="Download QoE CSV" className="h-6 min-w-7 px-1.5 rounded border border-slate-100 text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
-              <span className="text-[9px] font-bold">QoE</span>
+            <button onClick={downloadCsvBundle} title="Download synchronized LOG, QoS and QoE CSV files" className="h-6 min-w-12 px-1.5 rounded border border-slate-100 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors">
+              <span className="text-[9px] font-bold">CSV×3</span>
             </button>
             <button onClick={downloadText} title="Download TXT" className="h-6 w-7 inline-flex items-center justify-center rounded border border-slate-100 text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
               <FaDownload className="w-3.5 h-3.5" />
@@ -75,7 +69,7 @@ function ConsoleLogsPanelComponent({
             return (
               <div key={log.id} className="border-b border-slate-100 bg-white px-3 py-2.5 hover:bg-slate-50 transition-colors">
                 <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                  <span className="text-slate-400 text-[10px] font-mono whitespace-nowrap">{log.timestamp}</span>
+                  <span className="text-slate-400 text-[10px] font-mono whitespace-nowrap">R{log.replay} · {log.timestamp}</span>
                   <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${style.color} ${style.bg}`}>{style.label}</span>
                   <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 whitespace-nowrap" title="Segment">
                     {log.segmentLabel}

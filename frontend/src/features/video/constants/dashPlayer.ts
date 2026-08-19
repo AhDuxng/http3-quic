@@ -36,6 +36,7 @@ export const defaultStats: StreamStats = {
   startupDelayMs: 0,
   currentTime: 0,
   duration: 0,
+  totalPlaybackTime: 0,
   protocolLabel: "Detecting...",
   networkType: "unknown",
 };

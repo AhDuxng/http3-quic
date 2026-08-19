@@ -15,8 +15,10 @@ function buildCsv(headers: string[], rows: Array<Array<unknown>>) {
 
 export function generateLogsCsv(logs: LogEntry[]): string {
   return buildCsv(
-    ["Timestamp", "Stream", "Segment", "Level", "Message", "Protocol", "NetworkType", "IsAutoQuality", "ActiveScenario"],
+    ["EventId", "Replay", "Timestamp", "Stream", "Segment", "Level", "Message", "Protocol", "NetworkType", "IsAutoQuality", "ActiveScenario"],
     logs.map((log) => [
+      log.id,
+      log.replay,
       log.timestamp,
       log.streamTitle,
       log.segmentLabel,
@@ -33,16 +35,18 @@ export function generateLogsCsv(logs: LogEntry[]): string {
 export function generateQosCsv(logs: LogEntry[]): string {
   return buildCsv(
     [
-      "Timestamp", "Stream", "Segment", "Protocol", "NetworkType",
-      "AvgThroughput_kbps", "DownloadSpeed_kbps", "Goodput_kbps",
-      "TTFB_ms", "SegmentDownloadTime_ms", "Jitter_ms",
-      "OverheadRatio", "ConnectionSetup_ms", "DNS_ms", "TCP_ms", "TLS_ms",
-      "LossProxyRate", "FragmentRequests", "FailedFragments", "AbandonedFragments",
+      "EventId", "Replay", "Timestamp", "Stream", "Segment", "Protocol", "NetworkType",
+      "AvgThroughput_kbps", "DownloadSpeed_kbps", "PayloadRate_kbps",
+      "TTFB_ms", "SegmentWallTime_ms", "SegmentDurationVariation_ms",
+      "ResourceTimingOverheadRatio", "ConnectionSetup_ms", "DNS_ms", "Connect_ms", "SecureHandshake_ms",
+      "FragmentFailureOrAbandonRate", "FragmentRequests", "FailedFragments", "AbandonedFragments",
       "Buffer_s",
     ],
     logs.map((log) => {
       const stats = log.statsSnapshot;
       return [
+        log.id,
+        log.replay,
         log.timestamp,
         log.streamTitle,
         log.segmentLabel,
@@ -72,15 +76,17 @@ export function generateQosCsv(logs: LogEntry[]): string {
 export function generateQoeCsv(logs: LogEntry[]): string {
   return buildCsv(
     [
-      "Timestamp", "Stream", "Segment", "Bitrate_kbps", "AverageBitrate_kbps", "Resolution",
+      "EventId", "Replay", "Timestamp", "Stream", "Segment", "Bitrate_kbps", "AverageBitrate_kbps", "Resolution",
       "FPS", "DroppedFrames", "FrozenFrames", "StartupDelay_ms",
       "StallCount", "StallDuration_ms", "RebufferingRatio",
       "QualitySwitchCount", "QualityUpSwitchCount", "QualityDownSwitchCount",
-      "CurrentTime_s", "Duration_s", "IsAutoQuality", "ActiveScenario",
+      "CurrentTime_s", "TotalPlaybackTime_s", "Duration_s", "IsAutoQuality", "ActiveScenario",
     ],
     logs.map((log) => {
       const stats = log.statsSnapshot;
       return [
+        log.id,
+        log.replay,
         log.timestamp,
         log.streamTitle,
         log.segmentLabel,
@@ -98,6 +104,7 @@ export function generateQoeCsv(logs: LogEntry[]): string {
         stats.qualityUpSwitchCount,
         stats.qualityDownSwitchCount,
         stats.currentTime.toFixed(2),
+        stats.totalPlaybackTime.toFixed(2),
         stats.duration.toFixed(2),
         log.isAutoQuality,
         log.activeScenarioLabel,
@@ -138,7 +145,7 @@ export function generateDetailedLog(params: DetailedLogParams): string {
     `  Bitrate:           ${formatBitrateKbps(params.stats.bitrateKbps)}`,
     `  Average Bitrate:   ${formatBitrateKbps(params.stats.averageBitrateKbps)}`,
     `  Throughput:        ${formatBitrateKbps(params.stats.avgThroughputKbps)}`,
-    `  Goodput:           ${formatBitrateKbps(params.stats.goodputKbps)}`,
+    `  Payload Rate:      ${formatBitrateKbps(params.stats.goodputKbps)}`,
     `  Buffer:            ${params.stats.bufferSeconds.toFixed(2)} s`,
     `  FPS:               ${params.stats.fps.toFixed(1)}`,
     `  Dropped Frames:    ${params.stats.droppedFrames}`,
@@ -147,12 +154,12 @@ export function generateDetailedLog(params: DetailedLogParams): string {
     "",
     "-- NETWORK METRICS --",
     `  TTFB:              ${params.stats.ttfbMs.toFixed(2)} ms`,
-    `  Jitter (SDT):      ${params.stats.jitterMs.toFixed(2)} ms`,
-    `  Segment DL Time:   ${params.stats.lastSegmentDurationMs} ms`,
+    `  SDT Variation:     ${params.stats.jitterMs.toFixed(2)} ms`,
+    `  Segment Wall Time: ${params.stats.lastSegmentDurationMs} ms`,
     `  Download Speed:    ${formatBitrateKbps(params.stats.downloadSpeedKbps)}`,
-    `  Overhead Ratio:    ${(params.stats.overheadRatio * 100).toFixed(2)}%`,
-    `  Setup/DNS/TCP/TLS: ${params.stats.connectionSetupMs.toFixed(2)} / ${params.stats.dnsMs.toFixed(2)} / ${params.stats.tcpMs.toFixed(2)} / ${params.stats.tlsMs.toFixed(2)} ms`,
-    `  Loss Proxy:        ${(params.stats.lossProxyRate * 100).toFixed(2)}%`,
+    `  Resource Overhead: ${(params.stats.overheadRatio * 100).toFixed(2)}%`,
+    `  Setup/DNS/Connect/Secure: ${params.stats.connectionSetupMs.toFixed(2)} / ${params.stats.dnsMs.toFixed(2)} / ${params.stats.tcpMs.toFixed(2)} / ${params.stats.tlsMs.toFixed(2)} ms`,
+    `  Failed/Abandoned:  ${(params.stats.lossProxyRate * 100).toFixed(2)}%`,
     "",
     "-- PLAYBACK STABILITY --",
     `  Startup Delay:     ${params.stats.startupDelayMs || 0} ms`,
@@ -176,7 +183,7 @@ export function generateDetailedLog(params: DetailedLogParams): string {
     "",
     "-- EVENT LOG --",
     ...params.logs.map(
-      (log) => `  [${log.timestamp}] [${log.level}] [${log.segmentLabel}] [${log.statsSnapshot.protocolLabel}] ${log.message}`,
+      (log) => `  [R${log.replay}] [${log.timestamp}] [${log.level}] [${log.segmentLabel}] [${log.statsSnapshot.protocolLabel}] ${log.message}`,
     ),
     "",
     separator,

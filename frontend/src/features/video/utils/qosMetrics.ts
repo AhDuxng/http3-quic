@@ -95,6 +95,7 @@ export function calculateSegmentQosMetrics(args: {
   req: any;
   event: any;
   previousSegmentDurationMs: number | null;
+  wallDurationMs?: number | null;
   resourcePrefix?: string;
 }): SegmentQosMetrics {
   const resourceTiming = getLatestResourceTiming(args.req?.url, args.resourcePrefix);
@@ -102,7 +103,12 @@ export function calculateSegmentQosMetrics(args: {
     || getRequestTime(args.req?.requestStartDate)
     || getRequestTime(args.req?.firstByteDate);
   const bytesLoaded = getSegmentBytes(args.req, args.event, resourceTiming);
-  const durationMs = getSegmentDurationMs(args.req, resourceTiming, requestStartMs);
+  // dash.js may replace startDate while retrying a request. Prefer the duration
+  // measured around FRAGMENT_LOADING_STARTED/COMPLETED so outages and migration
+  // gaps are not silently omitted from SDT and throughput.
+  const durationMs = args.wallDurationMs && args.wallDurationMs > 0
+    ? Math.round(args.wallDurationMs)
+    : getSegmentDurationMs(args.req, resourceTiming, requestStartMs);
 
   if (bytesLoaded === 0) {
     return {
@@ -153,11 +159,17 @@ export function calculateSegmentQosMetrics(args: {
 
   // QoS: thoi gian setup ket noi lay tu Resource Timing API khi server cho phep Timing-Allow-Origin.
   const dnsMs = resourceTiming ? getPositiveDelta(resourceTiming.domainLookupEnd, resourceTiming.domainLookupStart) : 0;
+  // Resource Timing exposes a generic connect phase. For HTTP/3 this is QUIC,
+  // not TCP, even though the legacy StreamStats field is still named tcpMs.
   const tcpMs = resourceTiming ? getPositiveDelta(resourceTiming.connectEnd, resourceTiming.connectStart) : 0;
   const tlsMs = resourceTiming && resourceTiming.secureConnectionStart > 0
     ? getPositiveDelta(resourceTiming.connectEnd, resourceTiming.secureConnectionStart)
     : 0;
-  const connectionSetupMs = resourceTiming ? getPositiveDelta(resourceTiming.connectEnd, resourceTiming.startTime) : 0;
+  // Do not include request queueing/redirect time (startTime -> connectStart).
+  const setupStart = resourceTiming
+    ? (resourceTiming.domainLookupStart > 0 ? resourceTiming.domainLookupStart : resourceTiming.connectStart)
+    : 0;
+  const connectionSetupMs = resourceTiming ? getPositiveDelta(resourceTiming.connectEnd, setupStart) : 0;
 
   return {
     bytesLoaded,

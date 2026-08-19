@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MediaPlayer } from "dashjs";
-import type { MediaPlayerClass, Representation } from "dashjs";
+import type { MediaPlayerClass, QualityChangeRenderedEvent, Representation } from "dashjs";
 import type { NetworkScenario, NetworkScenarioId } from "../../../type/video";
 import type {
   QualitySelection, StreamStats, LogEntry, LogLevel,
@@ -9,6 +9,7 @@ import type {
 import { statsPollIntervalMs, netLogThrottleMs, defaultStats } from "../constants/dashPlayer";
 import { formatTimestamp } from "../utils/formatters";
 import { formatBitrateKbps } from "../utils/formatters";
+import { getNetworkType } from "../utils/performanceApi";
 import { getRepBitrateKbps, getResolutionLabel, useStreamMetrics } from "./useStreamMetrics";
 import { useStallTracker } from "./useStallTracker";
 
@@ -30,6 +31,20 @@ const dashFragmentErrorCodes = new Set([17, 18, 27]);
 
 function getRequestUrl(request: any) {
   return request?.url ?? "unknown";
+}
+
+function getFragmentTrackingKey(request: any) {
+  const rawUrl = getRequestUrl(request);
+  try {
+    const url = new URL(rawUrl, window.location.href);
+    // exp_req changes on each transport attempt. Removing experiment-only
+    // parameters lets retries contribute to one end-to-end segment duration.
+    url.searchParams.delete("exp_run");
+    url.searchParams.delete("exp_req");
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
 }
 
 function getRequestType(request: any) {
@@ -106,7 +121,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   const [representations, setRepresentations] = useState<Representation[]>([]);
   const [qualitySelection, setQualitySelectionState] = useState<QualitySelection>("auto");
   const [isAutoQuality, setIsAutoQuality] = useState(true);
-  const [activeScenarioId, setActiveScenarioId] = useState<NetworkScenarioId>(scenarios[0]?.id ?? "fiber");
+  const [activeScenarioId, setActiveScenarioId] = useState<NetworkScenarioId>("unconfigured");
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFragmentLoading, setIsFragmentLoading] = useState(false);
   const [stats, setStats] = useState<StreamStats>(defaultStats);
@@ -163,9 +178,11 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     if (isReplayDoneRef.current) return;
     if (sessionId !== playerSessionIdRef.current) return;
 
-    const label = scenarioById.get(activeScenarioIdRef.current)?.label ?? "—";
+    const label = scenarioById.get(activeScenarioIdRef.current)?.label ?? "Not applied";
     const entry: LogEntry = {
-      id: ++logIdRef.current, timestamp: formatTimestamp(new Date()),
+      id: ++logIdRef.current,
+      replay: currentReplayRef.current,
+      timestamp: formatTimestamp(new Date()),
       level, message,
       statsSnapshot: { ...statsRef.current, ...(patch ?? {}) },
       isAutoQuality: isAutoQualityRef.current, activeScenarioLabel: label,
@@ -244,11 +261,45 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     const player = MediaPlayer().create();
     playerRef.current = player;
     const isCurrentSession = () => sessionId === playerSessionIdRef.current && playerRef.current === player;
+    const networkConnection = (navigator as any).connection;
+    let previousNetworkType = getNetworkType();
+    const onNetworkChange = () => {
+      if (!isCurrentSession()) return;
+      const nextNetworkType = getNetworkType();
+      if (nextNetworkType === previousNetworkType) return;
+      const oldNetworkType = previousNetworkType;
+      previousNetworkType = nextNetworkType;
+      addSessionLog(
+        "SYS",
+        `NETWORK CHANGE: ${oldNetworkType} -> ${nextNetworkType}`,
+        { networkType: nextNetworkType },
+      );
+    };
+    networkConnection?.addEventListener?.("change", onNetworkChange);
     const activeFragmentRequests = new Set<unknown>();
     const failedFragmentRequests = new Set<unknown>();
+    const fragmentStartByRequest = new Map<unknown, number>();
+    const fragmentStartByKey = new Map<string, number>();
+    const markFragmentStarted = (request: unknown) => {
+      const startedAt = performance.now();
+      if (!fragmentStartByRequest.has(request)) fragmentStartByRequest.set(request, startedAt);
+      const key = getFragmentTrackingKey(request);
+      if (!fragmentStartByKey.has(key)) fragmentStartByKey.set(key, startedAt);
+    };
     const markFragmentFinished = (request: unknown) => {
       activeFragmentRequests.delete(request);
       if (activeFragmentRequests.size === 0) setIsFragmentLoading(false);
+      const key = getFragmentTrackingKey(request);
+      const requestStartedAt = fragmentStartByRequest.get(request);
+      const keyStartedAt = fragmentStartByKey.get(key);
+      const startedAt = requestStartedAt === undefined
+        ? keyStartedAt
+        : keyStartedAt === undefined
+          ? requestStartedAt
+          : Math.min(requestStartedAt, keyStartedAt);
+      fragmentStartByRequest.delete(request);
+      fragmentStartByKey.delete(key);
+      return startedAt === undefined ? null : Math.max(0, performance.now() - startedAt);
     };
     const recordFragmentFailureOnce = (request: unknown) => {
       if (request && failedFragmentRequests.has(request)) return;
@@ -305,36 +356,47 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       }
     };
 
-    let previousQualityIndex = -1;
-    const onQualityRendered = (event: any) => {
+    let previousQuality: { key: string; bitrateKbps: number; pixels: number } | null = null;
+    const onQualityRendered = (event: QualityChangeRenderedEvent) => {
       if (!isCurrentSession()) return;
       if (event?.mediaType !== "video") return;
       syncReps();
-      const newQualityIndex = event.newQuality ?? -1;
-      const hasPreviousQuality = previousQualityIndex >= 0;
-      const direction = !hasPreviousQuality
-        ? "unknown"
-        : newQualityIndex > previousQualityIndex
-          ? "up"
-          : newQualityIndex < previousQualityIndex
-            ? "down"
-            : "same";
-      previousQualityIndex = newQualityIndex;
       try {
-        const currentRepresentation = player.getCurrentRepresentationForType("video");
+        const currentRepresentation = event.newRepresentation
+          ?? player.getCurrentRepresentationForType("video");
         if (currentRepresentation) {
+          const currentBitrateKbps = getRepBitrateKbps(currentRepresentation);
+          const currentPixels = (currentRepresentation.width ?? 0) * (currentRepresentation.height ?? 0);
+          const currentKey = currentRepresentation.id
+            || `${currentBitrateKbps}:${currentRepresentation.width ?? 0}x${currentRepresentation.height ?? 0}`;
+          const oldQuality = previousQuality;
+          const hasPreviousQuality = oldQuality !== null;
+          const direction = !oldQuality
+            ? "unknown"
+            : currentKey === oldQuality.key
+              ? "same"
+              : currentBitrateKbps > oldQuality.bitrateKbps
+              ? "up"
+              : currentBitrateKbps < oldQuality.bitrateKbps
+                ? "down"
+                : currentPixels > oldQuality.pixels
+                  ? "up"
+                  : currentPixels < oldQuality.pixels
+                    ? "down"
+                    : "unknown";
+          previousQuality = { key: currentKey, bitrateKbps: currentBitrateKbps, pixels: currentPixels };
           const qualityLabel = currentRepresentation.height ? `${currentRepresentation.height}p` : "—";
           if (!hasPreviousQuality) {
             addSessionLog("INFO",
-              `Initial quality ${qualityLabel} @ ${formatBitrateKbps(getRepBitrateKbps(currentRepresentation))}.`);
+              `Initial quality ${qualityLabel} @ ${formatBitrateKbps(currentBitrateKbps)}.`);
             return;
           }
-          if (direction === "same") return;
+          if (direction === "same" || direction === "unknown") return;
           const count = metrics.incrementQualitySwitch(direction);
           const directionLabel = direction === "down" ? "reduced" : "upgraded";
           const level = direction === "down" ? "WARN" : "INFO";
           addSessionLog(level as any,
-            `Quality ${directionLabel} to ${qualityLabel} @ ${formatBitrateKbps(getRepBitrateKbps(currentRepresentation))}.`,
+            `Quality ${directionLabel} to ${qualityLabel} @ ${formatBitrateKbps(currentBitrateKbps)}.`,
             { qualitySwitchCount: count });
         }
       } catch {
@@ -346,6 +408,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       if (!isCurrentSession()) return;
       const request = event?.request;
       activeFragmentRequests.add(request);
+      markFragmentStarted(request);
       setIsFragmentLoading(true);
       addSessionLog("NET", `SEGMENT START: ${getRequestUrl(request)}`);
       if (!isVideoMediaRequest(request)) return;
@@ -356,7 +419,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       try {
         if (!isCurrentSession()) return;
         const request = event?.request;
-        markFragmentFinished(request);
+        const wallDurationMs = markFragmentFinished(request);
         if (event?.error) {
           addSessionLog(
             "ERRO",
@@ -369,7 +432,11 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         addSessionLog("NET", `SEGMENT COMPLETE: ${getRequestUrl(request)}`);
         if (!isVideoMediaRequest(request)) return;
 
-        const { bytesLoaded, durationMs } = metrics.processSegment(event?.request, event);
+        const { bytesLoaded, durationMs } = metrics.processSegment(
+          event?.request,
+          event,
+          wallDurationMs,
+        );
         const now = Date.now();
         if (now - lastNetLogRef.current < netLogThrottleMs) return;
         if (bytesLoaded === 0 && durationMs === 0) return;
@@ -399,6 +466,8 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         markFragmentFinished(request);
       } else {
         activeFragmentRequests.clear();
+        fragmentStartByRequest.clear();
+        fragmentStartByKey.clear();
         setIsFragmentLoading(false);
       }
       const errorCode = error?.code ?? error?.data?.code;
@@ -481,13 +550,18 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
 
       const maxReplays = replayCountRef.current;
       const curReplay = currentReplayRef.current;
+      const replayPlaybackTime = video?.currentTime ?? statsRef.current.currentTime;
+      metrics.completeReplay(replayPlaybackTime, stall.getSnapshot().stallAccumulatedMs);
 
       if (maxReplays === 0) {
         const nextReplay = curReplay + 1;
         currentReplayRef.current = nextReplay;
         setCurrentReplay(nextReplay);
+        previousQuality = null;
+        metrics.beginReplay();
         addSessionLog("SYS", `Replay #${nextReplay} starting (unlimited mode)...`);
         if (playerRef.current) {
+          metrics.markPlayRequested();
           playerRef.current.seek(0);
           playerRef.current.play();
         }
@@ -495,8 +569,11 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         const nextReplay = curReplay + 1;
         currentReplayRef.current = nextReplay;
         setCurrentReplay(nextReplay);
+        previousQuality = null;
+        metrics.beginReplay();
         addSessionLog("SYS", `Replay #${nextReplay}/${maxReplays} starting...`);
         if (playerRef.current) {
+          metrics.markPlayRequested();
           playerRef.current.seek(0);
           playerRef.current.play();
         }
@@ -531,7 +608,10 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       video?.removeEventListener("playing", onPlaying);
       video?.removeEventListener("ended", onEnded);
       player.off(MediaPlayer.events.PLAYBACK_ENDED, onEnded);
+      networkConnection?.removeEventListener?.("change", onNetworkChange);
       activeFragmentRequests.clear();
+      fragmentStartByRequest.clear();
+      fragmentStartByKey.clear();
       setIsFragmentLoading(false);
       try {
         player.destroy();
@@ -546,8 +626,6 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     if (!player) return;
     const sessionId = playerSessionIdRef.current;
     const isCurrentSession = () => sessionId === playerSessionIdRef.current && playerRef.current === player;
-    setActiveScenarioId(scenario.id);
-    activeScenarioIdRef.current = scenario.id;
     try {
       addLog("SYS", `Applying: ${scenario.label}...`, undefined, sessionId);
       const response = await fetch("/api/network-scenario", {
@@ -556,10 +634,20 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       });
       if (!isCurrentSession()) return;
       if (!response.ok) throw new Error(`Server returned ${response.status}`);
+      setActiveScenarioId(scenario.id);
+      activeScenarioIdRef.current = scenario.id;
       setIsAutoQuality(true); isAutoQualityRef.current = true;
       setQualitySelectionState("auto");
       player.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: true }, maxBitrate: { video: -1 } } } });
-      addLog("INFO", `Applied: ${scenario.label} via tc.`, undefined, sessionId);
+      addLog("INFO", `Applied: ${scenario.label} via server-egress tc.`, undefined, sessionId);
+      if (scenario.id === "migration_test") {
+        addLog(
+          "WARN",
+          "Migration profile does not switch Android interfaces; run the same external Wi-Fi/cellular schedule for every protocol.",
+          undefined,
+          sessionId,
+        );
+      }
     } catch (error) {
       if (!isCurrentSession()) return;
       addLog("ERRO", `Failed: ${(error as Error).message}`, undefined, sessionId);

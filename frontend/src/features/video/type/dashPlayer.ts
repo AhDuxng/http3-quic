@@ -8,6 +8,7 @@ export type LogLevel = "INFO" | "WARN" | "ERRO" | "NET" | "SYS";
 
 export interface LogEntry {
   id: number;
+  replay: number;
   timestamp: string;
   level: LogLevel;
   message: string;
@@ -55,6 +56,7 @@ export interface StreamStats {
 
   currentTime: number;
   duration: number;
+  totalPlaybackTime: number;
 
   protocolLabel: string;
   networkType: string;

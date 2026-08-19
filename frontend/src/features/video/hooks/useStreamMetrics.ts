@@ -54,6 +54,7 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
   const bitrateSampleRef = useRef<BitrateSample | null>(null);
   const frozenSampleRef = useRef<FrozenSample | null>(null);
   const frozenFrameCountRef = useRef(0);
+  const completedPlaybackTimeRef = useRef(0);
 
   const updateLossProxy = useCallback(() => {
     const total = fragmentRequestCountRef.current;
@@ -96,11 +97,12 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
     updateStats((prev) => ({ ...prev, startupDelayMs }));
   }, [statsRef, updateStats]);
 
-  const processSegment = useCallback((req: any, event: any) => {
+  const processSegment = useCallback((req: any, event: any, wallDurationMs?: number | null) => {
     // QoS: tinh metric theo tung segment: toc do tai, goodput, jitter, TTFB, overhead, DNS/TCP/TLS/setup.
     const segmentMetrics = calculateSegmentQosMetrics({
       req,
       event,
+      wallDurationMs,
       previousSegmentDurationMs: previousSegmentDurationRef.current,
       resourcePrefix: protocolUrlFragment,
     });
@@ -210,7 +212,8 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
       }
 
       // QoE: tinh ty le rebuffering bang tong thoi gian stall chia cho tong thoi gian phien xem do duoc.
-      const rebufferingRatio = calculateRebufferingRatio(currentTime, stallAccumulatedMs);
+      const totalPlaybackTime = completedPlaybackTimeRef.current + currentTime;
+      const rebufferingRatio = calculateRebufferingRatio(totalPlaybackTime, stallAccumulatedMs);
 
       updateStats((prev) => ({
         ...prev,
@@ -222,6 +225,7 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
         frozenFrameCount: frozenFrameCountRef.current,
         currentTime,
         duration: Number.isFinite(duration) ? duration : 0,
+        totalPlaybackTime,
         protocolLabel,
         networkType,
         rebufferingRatio,
@@ -230,6 +234,33 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
       return;
     }
   }, [markFirstFrame, protocolUrlFragment, statsRef, updateStats]);
+
+  const completeReplay = useCallback((playbackTimeSec: number, stallAccumulatedMs: number) => {
+    const completedSeconds = Number.isFinite(playbackTimeSec) && playbackTimeSec > 0
+      ? playbackTimeSec
+      : 0;
+    completedPlaybackTimeRef.current += completedSeconds;
+    updateStats((prev) => ({
+      ...prev,
+      totalPlaybackTime: completedPlaybackTimeRef.current,
+      rebufferingRatio: calculateRebufferingRatio(
+        completedPlaybackTimeRef.current,
+        stallAccumulatedMs,
+      ),
+    }));
+  }, [updateStats]);
+
+  const beginReplay = useCallback(() => {
+    // These samples are replay-local. Resetting them avoids treating the seek
+    // from the end to zero as a frame/bitrate sample or SDT variation.
+    segmentSamplesRef.current = [];
+    previousSegmentDurationRef.current = null;
+    frameSampleRef.current = null;
+    bitrateSampleRef.current = null;
+    frozenSampleRef.current = null;
+    playRequestedAtMsRef.current = null;
+    updateStats((prev) => ({ ...prev, startupDelayMs: 0, currentTime: 0 }));
+  }, [updateStats]);
 
   const reset = useCallback(() => {
     segmentSamplesRef.current = [];
@@ -247,6 +278,7 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
     bitrateSampleRef.current = null;
     frozenSampleRef.current = null;
     frozenFrameCountRef.current = 0;
+    completedPlaybackTimeRef.current = 0;
   }, []);
 
   return useMemo(() => ({
@@ -258,6 +290,8 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
     recordFragmentAbandon,
     markPlayRequested,
     markFirstFrame,
+    beginReplay,
+    completeReplay,
     reset,
   }), [
     processSegment,
@@ -268,6 +302,8 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
     recordFragmentAbandon,
     markPlayRequested,
     markFirstFrame,
+    beginReplay,
+    completeReplay,
     reset,
   ]);
 }
