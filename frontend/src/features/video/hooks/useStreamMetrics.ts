@@ -5,7 +5,7 @@ import type { StreamStats } from "../type/dashPlayer";
 import { detectProtocol, getNetworkType } from "../utils/performanceApi";
 import {
   calculateAverageThroughputKbps,
-  calculateLossProxyRate,
+  calculateFragmentFailureOrAbandonRate,
   calculateSegmentQosMetrics,
   type SegmentSample,
 } from "../utils/qosMetrics";
@@ -50,23 +50,23 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
   const abandonedFragmentRequestCountRef = useRef(0);
   const playRequestedAtMsRef = useRef<number | null>(null);
   const bitrateIntegralRef = useRef(0);
-  const bitrateObservedMsRef = useRef(0);
+  const bitrateObservedSecRef = useRef(0);
   const bitrateSampleRef = useRef<BitrateSample | null>(null);
   const frozenSampleRef = useRef<FrozenSample | null>(null);
-  const frozenFrameCountRef = useRef(0);
+  const freezeEventCountRef = useRef(0);
   const completedPlaybackTimeRef = useRef(0);
 
   const updateLossProxy = useCallback(() => {
     const total = fragmentRequestCountRef.current;
     const failed = failedFragmentRequestCountRef.current;
     const abandoned = abandonedFragmentRequestCountRef.current;
-    const lossProxyRate = calculateLossProxyRate(total, failed, abandoned);
+    const fragmentFailureOrAbandonRate = calculateFragmentFailureOrAbandonRate(total, failed, abandoned);
     updateStats((prev) => ({
       ...prev,
       fragmentRequestCount: total,
       failedFragmentRequestCount: failed,
       abandonedFragmentRequestCount: abandoned,
-      lossProxyRate,
+      fragmentFailureOrAbandonRate,
     }));
   }, [updateStats]);
 
@@ -91,23 +91,30 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
     }
   }, []);
 
-  const markFirstFrame = useCallback(() => {
+  const markFirstFrame = useCallback((renderedAtMs = performance.now()) => {
     if (playRequestedAtMsRef.current === null || statsRef.current.startupDelayMs > 0) return;
-    const startupDelayMs = calculateStartupDelayMs(playRequestedAtMsRef.current);
+    const startupDelayMs = calculateStartupDelayMs(playRequestedAtMsRef.current, renderedAtMs);
     updateStats((prev) => ({ ...prev, startupDelayMs }));
   }, [statsRef, updateStats]);
 
-  const processSegment = useCallback((req: any, event: any, wallDurationMs?: number | null) => {
-    // QoS: tinh metric theo tung segment: toc do tai, goodput, jitter, TTFB, overhead, DNS/TCP/TLS/setup.
+  const processSegment = useCallback((
+    req: any,
+    event: any,
+    wallDurationMs?: number | null,
+    dashHttpRequest?: any,
+    commit = true,
+  ) => {
+    // Chi do request, khong do mat goi hay overhead transport.
     const segmentMetrics = calculateSegmentQosMetrics({
       req,
       event,
       wallDurationMs,
       previousSegmentDurationMs: previousSegmentDurationRef.current,
       resourcePrefix: protocolUrlFragment,
+      dashHttpRequest,
     });
     const { bytesLoaded, durationMs } = segmentMetrics;
-    if (bytesLoaded === 0) return { bytesLoaded: 0, durationMs: 0 };
+    if (!commit || bytesLoaded === 0) return segmentMetrics;
 
     if (segmentMetrics.downloadSpeedKbps > 0) {
       const nowMs = Date.now();
@@ -126,17 +133,16 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
       ...prev,
       lastSegmentDurationMs: durationMs,
       downloadSpeedKbps: segmentMetrics.downloadSpeedKbps,
-      goodputKbps: segmentMetrics.goodputKbps,
-      jitterMs: segmentMetrics.jitterMs,
+      payloadRateKbps: segmentMetrics.payloadRateKbps,
+      segmentDownloadTimeVariationMs: segmentMetrics.segmentDownloadTimeVariationMs,
       ttfbMs: segmentMetrics.ttfbMs,
-      overheadRatio: segmentMetrics.overheadRatio,
       dnsMs: segmentMetrics.dnsMs,
-      tcpMs: segmentMetrics.tcpMs,
-      tlsMs: segmentMetrics.tlsMs,
+      connectMs: segmentMetrics.connectMs,
+      secureHandshakeMs: segmentMetrics.secureHandshakeMs,
       connectionSetupMs: segmentMetrics.connectionSetupMs,
     }));
 
-    return { bytesLoaded, durationMs };
+    return segmentMetrics;
   }, [protocolUrlFragment, updateStats]);
 
   const incrementQualitySwitch = useCallback((direction: QualitySwitchDirection = "unknown") => {
@@ -165,7 +171,8 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
   ) => {
     try {
       const playbackQuality = video.getVideoPlaybackQuality?.();
-      const bufferRaw = player.getBufferLength("video");
+      const dashMetrics = player.getDashMetrics();
+      const bufferRaw = dashMetrics.getCurrentBufferLevel("video");
       const bufferSeconds = typeof bufferRaw === "number" ? bufferRaw : 0;
       const currentTime = video.currentTime ?? 0;
       const duration = video.duration ?? 0;
@@ -187,13 +194,12 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
       const bitrateResult = calculateAverageBitrate({
         previousSample: bitrateSampleRef.current,
         currentBitrateKbps: statsRef.current.bitrateKbps,
-        currentTimeMs: perfNow,
-        shouldAccumulate: !video.paused && !video.ended,
-        bitrateIntegralKbpsMs: bitrateIntegralRef.current,
-        bitrateObservedMs: bitrateObservedMsRef.current,
+        currentMediaTimeSec: currentTime,
+        bitrateIntegralKbpsSec: bitrateIntegralRef.current,
+        bitrateObservedSec: bitrateObservedSecRef.current,
       });
-      bitrateIntegralRef.current = bitrateResult.bitrateIntegralKbpsMs;
-      bitrateObservedMsRef.current = bitrateResult.bitrateObservedMs;
+      bitrateIntegralRef.current = bitrateResult.bitrateIntegralKbpsSec;
+      bitrateObservedSecRef.current = bitrateResult.bitrateObservedSec;
       bitrateSampleRef.current = bitrateResult.nextSample;
 
       // QoE: phat hien frozen frame xap xi khi video dang phat nhung media time gan nhu khong doi.
@@ -201,10 +207,14 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
         previousSample: frozenSampleRef.current,
         currentTime,
         currentTimeMs: perfNow,
-        isVideoAdvancing: !video.paused && !video.ended && video.readyState >= 2,
-        currentFrozenFrameCount: frozenFrameCountRef.current,
+        isVideoAdvancing: !video.paused
+          && !video.ended
+          && !video.seeking
+          && video.readyState >= 2
+          && bufferSeconds > 0.05,
+        currentFreezeEventCount: freezeEventCountRef.current,
       });
-      frozenFrameCountRef.current = frozenResult.frozenFrameCount;
+      freezeEventCountRef.current = frozenResult.freezeEventCount;
       frozenSampleRef.current = frozenResult.nextSample;
 
       if (playRequestedAtMsRef.current !== null && statsRef.current.startupDelayMs === 0 && currentTime > 0) {
@@ -222,13 +232,14 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
         averageBitrateKbps: bitrateResult.averageBitrateKbps,
         fps: fpsResult.fps,
         droppedFrames: playbackQuality?.droppedVideoFrames ?? 0,
-        frozenFrameCount: frozenFrameCountRef.current,
+        freezeEventCount: freezeEventCountRef.current,
         currentTime,
         duration: Number.isFinite(duration) ? duration : 0,
         totalPlaybackTime,
         protocolLabel,
         networkType,
         rebufferingRatio,
+        stallDurationMs: stallAccumulatedMs,
       }));
     } catch {
       return;
@@ -251,8 +262,7 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
   }, [updateStats]);
 
   const beginReplay = useCallback(() => {
-    // These samples are replay-local. Resetting them avoids treating the seek
-    // from the end to zero as a frame/bitrate sample or SDT variation.
+    // Dat lai mau rieng cua moi replay.
     segmentSamplesRef.current = [];
     previousSegmentDurationRef.current = null;
     frameSampleRef.current = null;
@@ -274,10 +284,10 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
     abandonedFragmentRequestCountRef.current = 0;
     playRequestedAtMsRef.current = null;
     bitrateIntegralRef.current = 0;
-    bitrateObservedMsRef.current = 0;
+    bitrateObservedSecRef.current = 0;
     bitrateSampleRef.current = null;
     frozenSampleRef.current = null;
-    frozenFrameCountRef.current = 0;
+    freezeEventCountRef.current = 0;
     completedPlaybackTimeRef.current = 0;
   }, []);
 

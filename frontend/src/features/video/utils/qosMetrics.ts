@@ -12,14 +12,18 @@ export interface SegmentQosMetrics {
   bytesLoaded: number;
   durationMs: number;
   downloadSpeedKbps: number;
-  goodputKbps: number;
-  jitterMs: number;
+  payloadRateKbps: number;
+  segmentDownloadTimeVariationMs: number;
   ttfbMs: number;
-  overheadRatio: number;
+  encodedBodySizeBytes: number;
+  transferSizeBytes: number;
+  resourceTimingSizeDeltaBytes: number;
   dnsMs: number;
-  tcpMs: number;
-  tlsMs: number;
+  connectMs: number;
+  secureHandshakeMs: number;
   connectionSetupMs: number;
+  responseStatus: number;
+  nextHopProtocol: string;
 }
 
 export function getLatestResourceTiming(url?: string, resourcePrefix?: string): PerformanceResourceTiming | null {
@@ -53,11 +57,28 @@ function getPositiveDelta(end: number, start: number) {
   return Number.isFinite(delta) && delta > 0 ? Math.round(delta * 100) / 100 : 0;
 }
 
-export function getSegmentBytes(req: any, event: any, resourceTiming: PerformanceResourceTiming | null) {
+function getTraceBytes(trace: unknown) {
+  if (!Array.isArray(trace)) return 0;
+  return trace.reduce((total, item) => {
+    const chunks = Array.isArray(item?.b) ? item.b : [];
+    return total + chunks.reduce((sum: number, bytes: unknown) => (
+      sum + (typeof bytes === "number" && Number.isFinite(bytes) ? bytes : 0)
+    ), 0);
+  }, 0);
+}
+
+export function getSegmentBytes(
+  req: any,
+  event: any,
+  resourceTiming: PerformanceResourceTiming | null,
+  dashHttpRequest?: any,
+) {
   if (Number.isFinite(req?.bytesLoaded) && req.bytesLoaded > 0) return req.bytesLoaded;
   if (Number.isFinite(req?.bytesTotal) && req.bytesTotal > 0) return req.bytesTotal;
   if (event?.response instanceof ArrayBuffer) return event.response.byteLength;
   if (Number.isFinite(event?.response?.byteLength) && event.response.byteLength > 0) return event.response.byteLength;
+  const traceBytes = getTraceBytes(dashHttpRequest?.trace);
+  if (traceBytes > 0) return traceBytes;
   if (resourceTiming?.encodedBodySize && resourceTiming.encodedBodySize > 0) return resourceTiming.encodedBodySize;
   return 0;
 }
@@ -66,8 +87,12 @@ export function getSegmentDurationMs(
   req: any,
   resourceTiming: PerformanceResourceTiming | null,
   requestStartMs: number,
+  dashHttpRequest?: any,
 ) {
-  const requestEndMs = getRequestTime(req?.endDate) || getRequestTime(req?.requestEndDate) || Date.now();
+  const requestEndMs = getRequestTime(dashHttpRequest?._tfinish)
+    || getRequestTime(req?.endDate)
+    || getRequestTime(req?.requestEndDate)
+    || Date.now();
   let durationMs = requestStartMs > 0 && requestEndMs > requestStartMs ? requestEndMs - requestStartMs : 0;
 
   if (durationMs === 0 && Array.isArray(req?.trace) && req.trace.length > 0) {
@@ -84,8 +109,12 @@ export function getSegmentDurationMs(
   return durationMs;
 }
 
-export function calculateLossProxyRate(totalRequests: number, failedRequests: number, abandonedRequests: number) {
-  // QoS: ty le loi xap xi = (request segment loi + request segment bi huy) / tong request segment.
+export function calculateFragmentFailureOrAbandonRate(
+  totalRequests: number,
+  failedRequests: number,
+  abandonedRequests: number,
+) {
+  // Ty le request loi hoac bi bo, khong phai mat goi.
   return totalRequests > 0
     ? Math.round(((failedRequests + abandonedRequests) / totalRequests) * 10000) / 10000
     : 0;
@@ -97,75 +126,59 @@ export function calculateSegmentQosMetrics(args: {
   previousSegmentDurationMs: number | null;
   wallDurationMs?: number | null;
   resourcePrefix?: string;
+  dashHttpRequest?: any;
 }): SegmentQosMetrics {
   const resourceTiming = getLatestResourceTiming(args.req?.url, args.resourcePrefix);
-  const requestStartMs = getRequestTime(args.req?.startDate)
+  const requestStartMs = getRequestTime(args.dashHttpRequest?.trequest)
+    || getRequestTime(args.req?.startDate)
     || getRequestTime(args.req?.requestStartDate)
     || getRequestTime(args.req?.firstByteDate);
-  const bytesLoaded = getSegmentBytes(args.req, args.event, resourceTiming);
-  // dash.js may replace startDate while retrying a request. Prefer the duration
-  // measured around FRAGMENT_LOADING_STARTED/COMPLETED so outages and migration
-  // gaps are not silently omitted from SDT and throughput.
+  const bytesLoaded = getSegmentBytes(args.req, args.event, resourceTiming, args.dashHttpRequest);
+  // Do tu event de tinh ca thoi gian retry.
   const durationMs = args.wallDurationMs && args.wallDurationMs > 0
     ? Math.round(args.wallDurationMs)
-    : getSegmentDurationMs(args.req, resourceTiming, requestStartMs);
-
-  if (bytesLoaded === 0) {
-    return {
-      bytesLoaded: 0,
-      durationMs: 0,
-      downloadSpeedKbps: 0,
-      goodputKbps: 0,
-      jitterMs: 0,
-      ttfbMs: 0,
-      overheadRatio: 0,
-      dnsMs: 0,
-      tcpMs: 0,
-      tlsMs: 0,
-      connectionSetupMs: 0,
-    };
-  }
+    : getSegmentDurationMs(args.req, resourceTiming, requestStartMs, args.dashHttpRequest);
 
   const encodedBodySize = resourceTiming?.encodedBodySize && resourceTiming.encodedBodySize > 0
     ? resourceTiming.encodedBodySize
     : bytesLoaded;
-  const transferSize = resourceTiming?.transferSize && resourceTiming.transferSize > 0
+  const transferSizeBytes = resourceTiming?.transferSize && resourceTiming.transferSize > 0
     ? resourceTiming.transferSize
     : 0;
 
   // QoS: toc do tai segment = so byte nhan duoc * 8 / thoi gian tai segment.
   const downloadSpeedKbps = durationMs > 0 ? (bytesLoaded * 8) / durationMs : 0;
 
-  // QoS: goodput = so byte payload huu ich * 8 / thoi gian tai segment.
-  const goodputKbps = durationMs > 0 ? (encodedBodySize * 8) / durationMs : downloadSpeedKbps;
+  // Toc do payload ma hoa, khong phai goodput transport.
+  const payloadRateKbps = durationMs > 0 ? (encodedBodySize * 8) / durationMs : downloadSpeedKbps;
 
-  // QoS: ty le overhead = (tong byte truyen - byte payload huu ich) / tong byte truyen.
-  const overheadRatio = transferSize > 0
-    ? Math.max(0, Math.round(((transferSize - encodedBodySize) / transferSize) * 10000) / 10000)
+  // Delta Resource Timing khong phai overhead transport.
+  const resourceTimingSizeDeltaBytes = transferSizeBytes > 0
+    ? Math.max(0, transferSizeBytes - encodedBodySize)
     : 0;
 
-  // QoS: jitter xap xi = do lech tuyet doi giua hai thoi gian tai segment lien tiep.
-  const jitterMs = durationMs > 0 && args.previousSegmentDurationMs !== null
+  // Bien thien thoi gian tai, khong phai jitter mang.
+  const segmentDownloadTimeVariationMs = durationMs > 0 && args.previousSegmentDurationMs !== null
     ? Math.abs(durationMs - args.previousSegmentDurationMs)
     : 0;
 
   // QoS: do tre HTTP/TTFB xap xi RTT o tang ung dung, khong phai RTT TCP/IP that.
   let ttfbMs = resourceTiming ? getPositiveDelta(resourceTiming.responseStart, resourceTiming.requestStart) : 0;
   if (ttfbMs === 0 && args.req?.url) ttfbMs = getTtfbFromPerformanceApi(args.req.url, args.resourcePrefix);
-  if (ttfbMs === 0 && args.req?.firstByteDate && requestStartMs > 0) {
-    const firstByteTime = getRequestTime(args.req.firstByteDate);
+  const firstByteDate = args.dashHttpRequest?.tresponse ?? args.req?.firstByteDate;
+  if (ttfbMs === 0 && firstByteDate && requestStartMs > 0) {
+    const firstByteTime = getRequestTime(firstByteDate);
     if (firstByteTime > requestStartMs) ttfbMs = Math.round(firstByteTime - requestStartMs);
   }
 
   // QoS: thoi gian setup ket noi lay tu Resource Timing API khi server cho phep Timing-Allow-Origin.
   const dnsMs = resourceTiming ? getPositiveDelta(resourceTiming.domainLookupEnd, resourceTiming.domainLookupStart) : 0;
-  // Resource Timing exposes a generic connect phase. For HTTP/3 this is QUIC,
-  // not TCP, even though the legacy StreamStats field is still named tcpMs.
-  const tcpMs = resourceTiming ? getPositiveDelta(resourceTiming.connectEnd, resourceTiming.connectStart) : 0;
-  const tlsMs = resourceTiming && resourceTiming.secureConnectionStart > 0
+  // Connect cua HTTP/3 la QUIC, khong phai TCP.
+  const connectMs = resourceTiming ? getPositiveDelta(resourceTiming.connectEnd, resourceTiming.connectStart) : 0;
+  const secureHandshakeMs = resourceTiming && resourceTiming.secureConnectionStart > 0
     ? getPositiveDelta(resourceTiming.connectEnd, resourceTiming.secureConnectionStart)
     : 0;
-  // Do not include request queueing/redirect time (startTime -> connectStart).
+  // Bo qua thoi gian xep hang va redirect.
   const setupStart = resourceTiming
     ? (resourceTiming.domainLookupStart > 0 ? resourceTiming.domainLookupStart : resourceTiming.connectStart)
     : 0;
@@ -175,14 +188,26 @@ export function calculateSegmentQosMetrics(args: {
     bytesLoaded,
     durationMs,
     downloadSpeedKbps,
-    goodputKbps,
-    jitterMs,
+    payloadRateKbps,
+    segmentDownloadTimeVariationMs,
     ttfbMs,
-    overheadRatio,
+    encodedBodySizeBytes: encodedBodySize,
+    transferSizeBytes,
+    resourceTimingSizeDeltaBytes,
     dnsMs,
-    tcpMs,
-    tlsMs,
+    connectMs,
+    secureHandshakeMs,
     connectionSetupMs,
+    responseStatus: Number(
+      args.dashHttpRequest?.responsecode
+        ?? args.event?.error?.data?.response?.status
+        ?? args.event?.response?.status
+        ?? args.event?.request?.responsecode
+        ?? resourceTiming?.responseStatus
+        ?? args.req?.responsecode
+        ?? 0,
+    ) || 0,
+    nextHopProtocol: resourceTiming?.nextHopProtocol ?? "",
   };
 }
 

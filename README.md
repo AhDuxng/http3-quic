@@ -1,6 +1,6 @@
 # YouTube Clone HTTP/3 (QUIC)
 
-React/Vite + Node.js/Express + Caddy. Dùng để phát DASH video và test HTTP/1.1, HTTP/2, HTTP/3.
+React/Vite + Node.js/Express + OpenLiteSpeed/LSQUIC. Dùng để phát DASH video và test HTTP/1.1, HTTP/2, HTTP/3.
 
 ## Cấu trúc
 
@@ -8,9 +8,10 @@ React/Vite + Node.js/Express + Caddy. Dùng để phát DASH video và test HTTP
 http3-quic/
 ├── backend/              # Express API
 ├── frontend/             # React/Vite app
-│   └── dist/             # build output, Caddy serve ở production/dev compose
-├── caddy_config/
-│   └── Caddyfile         # Caddy reverse proxy + HTTP/3
+├── openlitespeed_config/
+│   ├── Dockerfile        # image OpenLiteSpeed 1.8.5
+│   ├── httpd_config.conf # HTTP/HTTPS listeners + HTTP/3
+│   └── vhosts/App/       # static DASH + reverse proxy frontend/API
 ├── video/                # tự tải/upload, không nằm trong repo
 │   └── BigBuckBunny/
 │       └── 4sec/
@@ -28,7 +29,7 @@ http3-quic/
 
 ## Chuẩn bị video
 
-Repo không kèm thư mục `video/`. Caddy mount thư mục này vào `/srv/video`, frontend gọi video theo dạng:
+Repo không kèm thư mục `video/`. OpenLiteSpeed mount thư mục này vào `/srv/video`, frontend gọi video theo dạng:
 
 ```text
 /video/<VideoName>/<segment>sec/<VideoName>_<segment>s_simple_2014_05_09.mpd
@@ -75,31 +76,52 @@ cd http3-quic
 docker compose up -d --build
 ```
 
-Mặc định Caddy đọc `caddy_config/Caddyfile`. Nếu deploy domain khác, sửa dòng site trong file này:
-
-```caddyfile
-video.duxng.io.vn, localhost, 127.0.0.1 {
-```
-
-thành domain/IP cần dùng, ví dụ:
-
-```caddyfile
-video.example.com, localhost, 127.0.0.1 {
-```
-
-Sau đó chạy lại:
+Lần chạy đầu, container tự tạo self-signed certificate cho giá trị `DOMAIN`. HTTPS sẽ chạy ngay nhưng trình duyệt có thể cảnh báo certificate. Để tạo certificate local được tin cậy, cài `mkcert` rồi chạy:
 
 ```bash
-docker compose up -d --build
+./scripts/setup-certs.sh localhost
+docker compose up -d --force-recreate openlitespeed
 ```
+
+Nếu `mkcert` không có, script sẽ tạo self-signed certificate bằng OpenSSL.
+
+## Production
+
+Đặt domain trong `.env`:
+
+```dotenv
+DOMAIN=video.example.com
+CORS_ORIGIN=https://video.example.com
+```
+
+OpenLiteSpeed đọc certificate thật từ hai file sau:
+
+```text
+openlitespeed_config/certs/server.crt  # full certificate chain
+openlitespeed_config/certs/server.key  # private key
+```
+
+Ví dụ với certificate đã được Let's Encrypt cấp:
+
+```bash
+cp /etc/letsencrypt/live/video.example.com/fullchain.pem openlitespeed_config/certs/server.crt
+cp /etc/letsencrypt/live/video.example.com/privkey.pem openlitespeed_config/certs/server.key
+chmod 600 openlitespeed_config/certs/server.key
+docker compose -f docker-compose.prod.yml up -d --build --force-recreate
+```
+
+Sau mỗi lần certificate được gia hạn, cập nhật hai file trên và recreate service `openlitespeed`. WebAdmin không được public; toàn bộ cấu hình nằm trong repo.
 
 ## Kiểm tra
 
 ```bash
 docker compose ps
-docker compose logs -f caddy
-curl -I https://<domain>/video/BigBuckBunny/4sec/BigBuckBunny_4s_simple_2014_05_09.mpd
+docker compose logs -f openlitespeed
+curl -kI https://<domain>/video/BigBuckBunny/4sec/BigBuckBunny_4s_simple_2014_05_09.mpd
+curl --http3-only -I https://<domain>/video/BigBuckBunny/4sec/BigBuckBunny_4s_simple_2014_05_09.mpd
 ```
+
+Lệnh cuối cần bản `curl` được build với HTTP/3 và certificate được tin cậy. Có thể kiểm tra trong Chrome DevTools bằng cách bật cột `Protocol`; request HTTP/3 sẽ hiển thị `h3`.
 
 ## Dừng
 
@@ -110,4 +132,6 @@ docker compose down
 ## Lỗi nhanh
 
 - Video 404: sai cấu trúc thư mục `video/`.
+- Không có HTTP/3: kiểm tra certificate có được tin cậy và firewall đã mở `443/udp`.
+- Sai MIME: `.mpd` phải trả `application/dash+xml`, `.m4s` phải trả `video/iso.segment`.
 - Frontend/API không lên: `docker compose logs -f`.

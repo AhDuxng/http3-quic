@@ -1,12 +1,19 @@
 import { useCallback, useMemo, useState } from "react";
 import type { Representation } from "dashjs";
 import type { NetworkScenario } from "../../../type/video";
-import type { LogEntry, StreamStats } from "../type/dashPlayer";
+import type {
+  LogEntry,
+  PlaybackQoeSample,
+  SegmentQosRecord,
+  StreamStats,
+} from "../type/dashPlayer";
 import { generateDetailedLog, generateLogsCsv, generateQoeCsv, generateQosCsv } from "../utils/csvExporter";
 
 interface UseConsoleDownloadsArgs {
   logs: LogEntry[];
   getStatsSnapshot: () => StreamStats;
+  getSegmentQosRecords: () => SegmentQosRecord[];
+  getPlaybackQoeSamples: () => PlaybackQoeSample[];
   representations: Representation[];
   isAutoQuality: boolean;
   activeScenario: NetworkScenario;
@@ -32,6 +39,8 @@ function createTimestamp() {
 export function useConsoleDownloads({
   logs,
   getStatsSnapshot,
+  getSegmentQosRecords,
+  getPlaybackQoeSamples,
   representations,
   isAutoQuality,
   activeScenario,
@@ -56,24 +65,25 @@ export function useConsoleDownloads({
   }, [logs, filter]);
 
   const downloadCsvBundle = useCallback(() => {
-    if (logs.length === 0) return;
-    // Capture one immutable array and one timestamp so all CSVs have exactly
-    // the same events and can be joined by EventId.
     const snapshotLogs = logs.slice();
+    const snapshotQosRecords = getSegmentQosRecords();
+    const snapshotQoeSamples = getPlaybackQoeSamples();
+    if (snapshotLogs.length === 0 && snapshotQosRecords.length === 0 && snapshotQoeSamples.length === 0) return;
+
     const timestamp = createTimestamp();
-    const csvByKind = {
-      logs: generateLogsCsv,
-      qos: generateQosCsv,
-      qoe: generateQoeCsv,
-    };
-    for (const kind of ["logs", "qos", "qoe"] as const) {
+    const exports = [
+      ["logs", generateLogsCsv(snapshotLogs)],
+      ["qos", generateQosCsv(snapshotQosRecords)],
+      ["qoe", generateQoeCsv(snapshotQoeSamples)],
+    ] as const;
+    for (const [kind, content] of exports) {
       downloadFile(
-        csvByKind[kind](snapshotLogs),
+        content,
         `adtube-${kind}-${filenameSlug}-${timestamp}.csv`,
         "text/csv;charset=utf-8",
       );
     }
-  }, [filenameSlug, logs]);
+  }, [filenameSlug, getPlaybackQoeSamples, getSegmentQosRecords, logs]);
 
   const downloadText = useCallback(() => {
     if (filteredLogs.length === 0) return;

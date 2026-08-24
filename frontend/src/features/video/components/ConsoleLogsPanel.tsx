@@ -1,7 +1,13 @@
 import { memo } from "react";
 import type { Representation } from "dashjs";
 import { FaTerminal, FaDownload, FaSearch } from "react-icons/fa";
-import type { LogEntry, LogLevel, StreamStats } from "../type/dashPlayer";
+import type {
+  LogEntry,
+  LogLevel,
+  PlaybackQoeSample,
+  SegmentQosRecord,
+  StreamStats,
+} from "../type/dashPlayer";
 import type { NetworkScenario } from "../../../type/video";
 import { useConsoleDownloads } from "../hooks/useConsoleDownloads";
 import { PanelHeader } from "./shared/PanelHeader";
@@ -9,6 +15,8 @@ import { PanelHeader } from "./shared/PanelHeader";
 interface ConsoleLogsPanelProps {
   logs: LogEntry[];
   getStatsSnapshot: () => StreamStats;
+  getSegmentQosRecords: () => SegmentQosRecord[];
+  getPlaybackQoeSamples: () => PlaybackQoeSample[];
   representations: Representation[];
   isAutoQuality: boolean;
   activeScenario: NetworkScenario;
@@ -25,7 +33,8 @@ const logStyle: Record<LogLevel, { color: string; bg: string; label: string }> =
 };
 
 function ConsoleLogsPanelComponent({
-  logs, getStatsSnapshot, representations, isAutoQuality, activeScenario, streamTitle, compact = false,
+  logs, getStatsSnapshot, getSegmentQosRecords, getPlaybackQoeSamples,
+  representations, isAutoQuality, activeScenario, streamTitle, compact = false,
 }: ConsoleLogsPanelProps) {
   const {
     filter,
@@ -36,6 +45,8 @@ function ConsoleLogsPanelComponent({
   } = useConsoleDownloads({
     logs,
     getStatsSnapshot,
+    getSegmentQosRecords,
+    getPlaybackQoeSamples,
     representations,
     isAutoQuality,
     activeScenario,
@@ -50,7 +61,7 @@ function ConsoleLogsPanelComponent({
         meta={<span className="text-[10px] text-slate-400 font-mono">({filteredLogs.length}/{logs.length})</span>}
         actions={(
           <div className="flex items-center gap-1.5">
-            <button onClick={downloadCsvBundle} title="Download synchronized LOG, QoS and QoE CSV files" className="h-6 min-w-12 px-1.5 rounded border border-slate-100 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors">
+            <button onClick={downloadCsvBundle} title="Download event logs, per-request QoS and time-sampled QoE CSV files" className="h-6 min-w-12 px-1.5 rounded border border-slate-100 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors">
               <span className="text-[9px] font-bold">CSV×3</span>
             </button>
             <button onClick={downloadText} title="Download TXT" className="h-6 w-7 inline-flex items-center justify-center rounded border border-slate-100 text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">

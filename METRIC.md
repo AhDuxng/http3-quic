@@ -105,43 +105,42 @@ Với Resource Timing API:
 
 ```text
 dns_time = domainLookupEnd - domainLookupStart
-tcp_time = connectEnd - connectStart
-tls_time = connectEnd - secureConnectionStart
-connection_setup_time = connectEnd - startTime
+connect_time = connectEnd - connectStart
+secure_handshake_time = connectEnd - secureConnectionStart
+connection_setup_time = connectEnd - (domainLookupStart > 0 ? domainLookupStart : connectStart)
 ```
 
 Lưu ý: nếu CDN không bật `Timing-Allow-Origin`, nhiều field của Resource Timing có thể bằng `0` hoặc không đủ dữ liệu.
 
 ---
 
-### 1.6. Goodput
+### 1.6. Encoded payload rate (xấp xỉ ở browser)
 
-**Goodput** là lượng dữ liệu hữu ích thực sự được truyền thành công mỗi giây, bỏ qua overhead như HTTP header, TLS record, IP/TCP/UDP header.
-
-```text
-goodput = useful_payload_bytes * 8 / download_time
-```
-
-Trong browser, có thể lấy gần đúng:
+**Goodput transport thật** là lượng dữ liệu hữu ích được truyền thành công mỗi giây sau khi loại toàn bộ overhead và retransmission. Browser không expose đủ bộ đếm QUIC/TLS/IP để đo chính xác đại lượng đó.
 
 ```text
-useful_payload_bytes ≈ encodedBodySize
-total_transferred_bytes ≈ transferSize
+encoded_payload_rate = encoded_media_bytes * 8 / download_time
 ```
 
-Nếu không có Resource Timing đầy đủ, có thể dùng `bytesLoaded` của dash.js như xấp xỉ payload segment.
+Trong browser, nên ghi rõ đây là **encoded payload rate**:
+
+```text
+encoded_media_bytes ≈ encodedBodySize hoặc bytesLoaded
+```
+
+Chỉ gọi là goodput khi có telemetry transport riêng đủ để trừ framing, header và retransmission.
 
 ---
 
-### 1.7. Overhead Ratio
+### 1.7. Kích thước Resource Timing và transport overhead
 
-**Overhead Ratio** cho biết tỷ lệ dữ liệu phụ trợ so với tổng dữ liệu truyền.
+Không được dùng `transferSize - encodedBodySize` làm TCP/TLS/QUIC overhead. `transferSize` của Resource Timing có quy tắc làm mờ thông tin và có thể chứa giá trị ước lượng cố định; nó cũng không cung cấp byte retransmission hay đầy đủ framing ở tầng transport.
 
 ```text
-overhead_ratio = (transferSize - encodedBodySize) / transferSize
+resource_timing_size_delta = transferSize - encodedBodySize
 ```
 
-Nếu `transferSize` và `encodedBodySize` không có do giới hạn CORS/Timing-Allow-Origin, không nên kết luận overhead từ browser.
+Có thể export riêng `transferSize`, `encodedBodySize` và delta để kiểm tra Resource Timing, nhưng không gắn nhãn delta là overhead. Muốn đo wire overhead phải dùng qlog/pcap hoặc telemetry phía server/transport.
 
 ---
 
@@ -374,12 +373,13 @@ recovery_time = time_quality_back_to_baseline - time_network_impairment_started
 | Metric | dash.js/browser đo trực tiếp? | Cách đo |
 |---|---:|---|
 | Throughput | Có | `player.getAverageThroughput()` hoặc tự tính từ fragment |
-| Goodput | Có, gần đúng | `encodedBodySize` hoặc `bytesLoaded` |
+| Encoded payload rate | Có | `encodedBodySize` hoặc `bytesLoaded` chia thời gian tải |
+| Transport goodput/overhead | Không | Cần qlog/pcap hoặc telemetry transport/server |
 | RTT thật | Không | Chỉ đo HTTP latency/TTFB xấp xỉ |
 | Jitter | Gần đúng | Dao động của HTTP latency hoặc fragment download time |
 | Packet Loss | Không | Dùng network tool; dash.js chỉ có failure/abandon proxy |
 | Connection Setup Time | Có, nếu Resource Timing đủ dữ liệu | `PerformanceResourceTiming` |
-| Startup Delay | Có | `play` → first frame/`playing` |
+| Startup Delay | Có | `play` → callback đầu tiên của `requestVideoFrameCallback()`; `playing` chỉ là fallback xấp xỉ |
 | Rebuffering Ratio | Có | Tổng thời gian `waiting/stalled` sau khi đã bắt đầu phát |
 | Rebuffering Frequency | Có | Đếm số lần stall |
 | Quality Switches | Có | `QUALITY_CHANGE_RENDERED` |
@@ -432,8 +432,8 @@ interface FragmentMetric {
   downloadTimeMs: number;
   httpLatencyMs: number | null;
   throughputMbps: number;
-  goodputMbps: number;
-  overheadRatio: number | null;
+  encodedPayloadRateMbps: number;
+  resourceTimingSizeDeltaBytes: number | null;
   statusCode?: number;
 }
 
@@ -455,15 +455,15 @@ interface MonitorSnapshot {
   avgThroughputVideoMbps: number | null;
   avgThroughputAudioMbps: number | null;
   lastFragmentThroughputMbps: number | null;
-  lastFragmentGoodputMbps: number | null;
+  lastFragmentEncodedPayloadRateMbps: number | null;
   avgHttpLatencyMs: number | null;
-  jitterMs: number | null;
-  packetLossProxyRate: number | null;
+  httpLatencyVariationMs: number | null;
+  fragmentFailureOrAbandonRate: number | null;
   connectionSetupMs: number | null;
   dnsMs: number | null;
-  tcpMs: number | null;
-  tlsMs: number | null;
-  overheadRatio: number | null;
+  connectMs: number | null;
+  secureHandshakeMs: number | null;
+  resourceTimingSizeDeltaBytes: number | null;
 
   // QoE
   startupDelayMs: number | null;
@@ -483,7 +483,7 @@ interface MonitorSnapshot {
   droppedFrames: number | null;
   frozenFrameEvents: number;
 
-  // Comparison / recovery
+  // So sanh va phuc hoi
   recoveryTimeMs: number | null;
 }
 
@@ -678,11 +678,11 @@ export class DashMetricsMonitor {
     const lastFragment = this.fragmentMetrics[this.fragmentMetrics.length - 1] ?? null;
     const recentFragments = this.fragmentMetrics.slice(-20);
 
-    const overheadValues = recentFragments
-      .map((f) => f.overheadRatio)
+    const resourceTimingSizeDeltas = recentFragments
+      .map((f) => f.resourceTimingSizeDeltaBytes)
       .filter((v): v is number => v !== null && Number.isFinite(v));
 
-    const packetLossProxyRate =
+    const fragmentFailureOrAbandonRate =
       this.totalFragmentRequests > 0
         ? (this.failedFragmentRequests + this.abandonedFragmentRequests) / this.totalFragmentRequests
         : null;
@@ -705,15 +705,16 @@ export class DashMetricsMonitor {
         this.safeDashCall(() => this.player.getAverageThroughput('audio'))
       ),
       lastFragmentThroughputMbps: lastFragment?.throughputMbps ?? null,
-      lastFragmentGoodputMbps: lastFragment?.goodputMbps ?? null,
+      lastFragmentEncodedPayloadRateMbps: lastFragment?.encodedPayloadRateMbps ?? null,
       avgHttpLatencyMs: avg(this.httpLatencySamplesMs.slice(-20)),
-      jitterMs: avgAbsDiff(this.httpLatencySamplesMs.slice(-20)),
-      packetLossProxyRate,
+      httpLatencyVariationMs: avgAbsDiff(this.httpLatencySamplesMs.slice(-20)),
+      fragmentFailureOrAbandonRate,
       connectionSetupMs: connection.connectionSetupMs,
       dnsMs: connection.dnsMs,
-      tcpMs: connection.tcpMs,
-      tlsMs: connection.tlsMs,
-      overheadRatio: overheadValues.length > 0 ? avg(overheadValues) : null,
+      connectMs: connection.connectMs,
+      secureHandshakeMs: connection.secureHandshakeMs,
+      resourceTimingSizeDeltaBytes:
+        resourceTimingSizeDeltas.length > 0 ? avg(resourceTimingSizeDeltas) : null,
 
       startupDelayMs:
         this.playRequestedAtMs !== null && this.firstPlayingAtMs !== null
@@ -861,8 +862,8 @@ export class DashMetricsMonitor {
     const encodedBodySize =
       resource && resource.encodedBodySize > 0 ? resource.encodedBodySize : null;
 
-    const bytes = encodedBodySize ?? dashBytes;
-    const totalBytesForThroughput = transferSize ?? bytes;
+    const bytes = dashBytes > 0 ? dashBytes : encodedBodySize ?? 0;
+    const encodedPayloadBytes = encodedBodySize ?? bytes;
 
     const httpLatencyMs =
       resource && resource.responseStart > resource.requestStart
@@ -879,13 +880,14 @@ export class DashMetricsMonitor {
     }
 
     const throughputMbps =
-      downloadTimeMs > 0 ? (totalBytesForThroughput * 8) / downloadTimeMs / 1000 : 0;
-    const goodputMbps =
       downloadTimeMs > 0 ? (bytes * 8) / downloadTimeMs / 1000 : 0;
+    const encodedPayloadRateMbps =
+      downloadTimeMs > 0 ? (encodedPayloadBytes * 8) / downloadTimeMs / 1000 : 0;
 
-    const overheadRatio =
-      transferSize !== null && encodedBodySize !== null && transferSize > 0
-        ? Math.max(0, (transferSize - encodedBodySize) / transferSize)
+    // Delta Resource Timing, khong phai overhead transport.
+    const resourceTimingSizeDeltaBytes =
+      transferSize !== null && encodedBodySize !== null
+        ? Math.max(0, transferSize - encodedBodySize)
         : null;
 
     this.fragmentMetrics.push({
@@ -900,8 +902,8 @@ export class DashMetricsMonitor {
       downloadTimeMs,
       httpLatencyMs,
       throughputMbps,
-      goodputMbps,
-      overheadRatio,
+      encodedPayloadRateMbps,
+      resourceTimingSizeDeltaBytes,
       statusCode: safeNumber(req?.responsecode ?? req?.status) ?? undefined
     });
 
@@ -1038,8 +1040,8 @@ export class DashMetricsMonitor {
   private getConnectionSetupMetrics(): {
     connectionSetupMs: number | null;
     dnsMs: number | null;
-    tcpMs: number | null;
-    tlsMs: number | null;
+    connectMs: number | null;
+    secureHandshakeMs: number | null;
   } {
     const resource = latestResourceTimingByUrl(this.manifestUrl);
 
@@ -1047,8 +1049,8 @@ export class DashMetricsMonitor {
       return {
         connectionSetupMs: null,
         dnsMs: null,
-        tcpMs: null,
-        tlsMs: null
+        connectMs: null,
+        secureHandshakeMs: null
       };
     }
 
@@ -1057,26 +1059,28 @@ export class DashMetricsMonitor {
         ? resource.domainLookupEnd - resource.domainLookupStart
         : null;
 
-    const tcpMs =
+    const connectMs =
       resource.connectEnd > resource.connectStart
         ? resource.connectEnd - resource.connectStart
         : null;
 
-    const tlsMs =
+    const secureHandshakeMs =
       resource.secureConnectionStart > 0 && resource.connectEnd > resource.secureConnectionStart
         ? resource.connectEnd - resource.secureConnectionStart
         : null;
 
+    const setupStart =
+      resource.domainLookupStart > 0 ? resource.domainLookupStart : resource.connectStart;
     const connectionSetupMs =
-      resource.connectEnd > resource.startTime
-        ? resource.connectEnd - resource.startTime
+      resource.connectEnd > setupStart
+        ? resource.connectEnd - setupStart
         : null;
 
     return {
       connectionSetupMs,
       dnsMs,
-      tcpMs,
-      tlsMs
+      connectMs,
+      secureHandshakeMs
     };
   }
 
@@ -1089,7 +1093,8 @@ export class DashMetricsMonitor {
         this.lastVideoFrameWallTimeMs !== null &&
         this.lastVideoMediaTimeSec !== null &&
         !this.video.paused &&
-        !this.video.ended
+        !this.video.ended &&
+        this.rebufferingStartedAtMs === null
       ) {
         const wallDeltaMs = wall - this.lastVideoFrameWallTimeMs;
         const mediaDeltaMs = (mediaTime - this.lastVideoMediaTimeSec) * 1000;
@@ -1211,11 +1216,11 @@ window.setInterval(() => {
       QoS: {
         avgThroughputVideoMbps: snapshot.avgThroughputVideoMbps,
         lastFragmentThroughputMbps: snapshot.lastFragmentThroughputMbps,
-        goodputMbps: snapshot.lastFragmentGoodputMbps,
+        encodedPayloadRateMbps: snapshot.lastFragmentEncodedPayloadRateMbps,
         avgHttpLatencyMs: snapshot.avgHttpLatencyMs,
-        jitterMs: snapshot.jitterMs,
-        packetLossProxyRate: snapshot.packetLossProxyRate,
-        overheadRatio: snapshot.overheadRatio,
+        httpLatencyVariationMs: snapshot.httpLatencyVariationMs,
+        fragmentFailureOrAbandonRate: snapshot.fragmentFailureOrAbandonRate,
+        resourceTimingSizeDeltaBytes: snapshot.resourceTimingSizeDeltaBytes,
         connectionSetupMs: snapshot.connectionSetupMs
       },
       QoE: {
@@ -1395,7 +1400,7 @@ Nên lưu sample-level log:
   "networkProfile": "loss_2_percent",
   "throughputMbps": 5.2,
   "httpLatencyMs": 83,
-  "jitterMs": 12,
+  "httpLatencyVariationMs": 12,
   "startupDelayMs": 940,
   "rebufferingRatio": 0.01,
   "qualitySwitches": 3,

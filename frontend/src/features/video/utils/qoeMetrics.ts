@@ -6,13 +6,14 @@ export interface FrameSample {
 }
 
 export interface BitrateSample {
-  atMs: number;
+  mediaTimeSec: number;
   bitrateKbps: number;
 }
 
 export interface FrozenSample {
   atMs: number;
   currentTime: number;
+  isFrozen: boolean;
 }
 
 export interface QualitySwitchTotals {
@@ -60,31 +61,30 @@ export function calculateFps(
 export function calculateAverageBitrate(args: {
   previousSample: BitrateSample | null;
   currentBitrateKbps: number;
-  currentTimeMs: number;
-  shouldAccumulate: boolean;
-  bitrateIntegralKbpsMs: number;
-  bitrateObservedMs: number;
+  currentMediaTimeSec: number;
+  bitrateIntegralKbpsSec: number;
+  bitrateObservedSec: number;
 }) {
-  // QoE: bitrate trung binh co trong so thoi gian = tong(bitrate_i * thoi_luong_i) / tong thoi gian quan sat.
-  let bitrateIntegralKbpsMs = args.bitrateIntegralKbpsMs;
-  let bitrateObservedMs = args.bitrateObservedMs;
+  // Tinh bitrate theo thoi gian media chay.
+  let bitrateIntegralKbpsSec = args.bitrateIntegralKbpsSec;
+  let bitrateObservedSec = args.bitrateObservedSec;
 
-  if (args.previousSample && args.shouldAccumulate && args.previousSample.bitrateKbps > 0) {
-    const elapsedMs = args.currentTimeMs - args.previousSample.atMs;
-    if (elapsedMs > 0 && elapsedMs < 10_000) {
-      bitrateIntegralKbpsMs += args.previousSample.bitrateKbps * elapsedMs;
-      bitrateObservedMs += elapsedMs;
+  if (args.previousSample && args.previousSample.bitrateKbps > 0) {
+    const mediaElapsedSec = args.currentMediaTimeSec - args.previousSample.mediaTimeSec;
+    if (mediaElapsedSec > 0 && mediaElapsedSec < 10) {
+      bitrateIntegralKbpsSec += args.previousSample.bitrateKbps * mediaElapsedSec;
+      bitrateObservedSec += mediaElapsedSec;
     }
   }
 
   return {
-    bitrateIntegralKbpsMs,
-    bitrateObservedMs,
-    averageBitrateKbps: bitrateObservedMs > 0
-      ? bitrateIntegralKbpsMs / bitrateObservedMs
+    bitrateIntegralKbpsSec,
+    bitrateObservedSec,
+    averageBitrateKbps: bitrateObservedSec > 0
+      ? bitrateIntegralKbpsSec / bitrateObservedSec
       : args.currentBitrateKbps,
     nextSample: {
-      atMs: args.currentTimeMs,
+      mediaTimeSec: args.currentMediaTimeSec,
       bitrateKbps: args.currentBitrateKbps,
     },
   };
@@ -95,36 +95,37 @@ export function calculateFrozenFrame(args: {
   currentTime: number;
   currentTimeMs: number;
   isVideoAdvancing: boolean;
-  currentFrozenFrameCount: number;
+  currentFreezeEventCount: number;
 }) {
-  // QoE: frozen frame xap xi tang khi thoi gian thuc troi qua nhung media time gan nhu dung yen.
+  // Moi dot dung hinh chi dem mot lan, bo qua rebuffer.
   if (!args.isVideoAdvancing) {
     return {
-      frozenFrameCount: args.currentFrozenFrameCount,
-      nextSample: { atMs: args.currentTimeMs, currentTime: args.currentTime },
+      freezeEventCount: args.currentFreezeEventCount,
+      nextSample: { atMs: args.currentTimeMs, currentTime: args.currentTime, isFrozen: false },
     };
   }
 
   if (
     args.previousSample
+    && !args.previousSample.isFrozen
     && Math.abs(args.currentTime - args.previousSample.currentTime) < 0.03
     && args.currentTimeMs - args.previousSample.atMs > 2500
   ) {
     return {
-      frozenFrameCount: args.currentFrozenFrameCount + 1,
-      nextSample: { atMs: args.currentTimeMs, currentTime: args.currentTime },
+      freezeEventCount: args.currentFreezeEventCount + 1,
+      nextSample: { ...args.previousSample, isFrozen: true },
     };
   }
 
   if (!args.previousSample || Math.abs(args.currentTime - args.previousSample.currentTime) >= 0.03) {
     return {
-      frozenFrameCount: args.currentFrozenFrameCount,
-      nextSample: { atMs: args.currentTimeMs, currentTime: args.currentTime },
+      freezeEventCount: args.currentFreezeEventCount,
+      nextSample: { atMs: args.currentTimeMs, currentTime: args.currentTime, isFrozen: false },
     };
   }
 
   return {
-    frozenFrameCount: args.currentFrozenFrameCount,
+    freezeEventCount: args.currentFreezeEventCount,
     nextSample: args.previousSample,
   };
 }

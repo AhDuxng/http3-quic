@@ -30,7 +30,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       activeScenarioId, qualitySelection, isAutoQuality,
       logs, applyScenario, setQualitySelection, togglePlayPause, resetStats,
       play, pause,
-      getStatsSnapshot,
+      getStatsSnapshot, getSegmentQosRecords, getPlaybackQoeSamples,
       replayCount, currentReplay, isReplayDone, setReplayCount,
     } = useDashPlayer({ manifestUrl, scenarios: networkScenarios, streamTitle, segmentSeconds });
 
@@ -103,6 +103,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           <ConsoleLogsPanel
             logs={logs}
             getStatsSnapshot={getStatsSnapshot}
+            getSegmentQosRecords={getSegmentQosRecords}
+            getPlaybackQoeSamples={getPlaybackQoeSamples}
             representations={representations}
             isAutoQuality={isAutoQuality}
             activeScenario={activeScenario}
@@ -142,7 +144,10 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               isManualMode={isManualMode} setIsManualMode={setIsManualMode}
             />
             <ConsoleLogsPanel
-              logs={logs} getStatsSnapshot={getStatsSnapshot} representations={representations}
+              logs={logs} getStatsSnapshot={getStatsSnapshot}
+              getSegmentQosRecords={getSegmentQosRecords}
+              getPlaybackQoeSamples={getPlaybackQoeSamples}
+              representations={representations}
               isAutoQuality={isAutoQuality} activeScenario={activeScenario}
               streamTitle={streamTitle}
             />

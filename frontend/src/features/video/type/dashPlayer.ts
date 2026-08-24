@@ -29,19 +29,18 @@ export interface StreamStats {
   resolutionLabel: string;
   fps: number;
   droppedFrames: number;
-  frozenFrameCount: number;
+  freezeEventCount: number;
 
   downloadSpeedKbps: number;
-  goodputKbps: number;
+  payloadRateKbps: number;
   lastSegmentDurationMs: number;
   ttfbMs: number;
-  jitterMs: number;
-  overheadRatio: number;
+  segmentDownloadTimeVariationMs: number;
   connectionSetupMs: number;
   dnsMs: number;
-  tcpMs: number;
-  tlsMs: number;
-  lossProxyRate: number;
+  connectMs: number;
+  secureHandshakeMs: number;
+  fragmentFailureOrAbandonRate: number;
   fragmentRequestCount: number;
   failedFragmentRequestCount: number;
   abandonedFragmentRequestCount: number;
@@ -62,6 +61,48 @@ export interface StreamStats {
   networkType: string;
 }
 
+export type SegmentRequestStatus = "completed" | "failed" | "abandoned";
+
+export interface SegmentQosRecord {
+  id: number;
+  replay: number;
+  timestamp: string;
+  streamTitle: string;
+  segmentLabel: string;
+  url: string;
+  requestType: string;
+  representationId: string;
+  status: SegmentRequestStatus;
+  responseStatus: number;
+  protocolLabel: string;
+  networkType: string;
+  bytesLoaded: number;
+  encodedBodySizeBytes: number;
+  transferSizeBytes: number;
+  resourceTimingSizeDeltaBytes: number;
+  downloadTimeMs: number;
+  downloadSpeedKbps: number;
+  payloadRateKbps: number;
+  ttfbMs: number;
+  segmentDownloadTimeVariationMs: number;
+  connectionSetupMs: number;
+  dnsMs: number;
+  connectMs: number;
+  secureHandshakeMs: number;
+}
+
+export interface PlaybackQoeSample {
+  id: number;
+  replay: number;
+  timestamp: string;
+  streamTitle: string;
+  segmentLabel: string;
+  isPlaying: boolean;
+  isAutoQuality: boolean;
+  activeScenarioLabel: string;
+  stats: StreamStats;
+}
+
 export interface UseDashPlayerArgs {
   manifestUrl: string | null | undefined;
   scenarios: readonly NetworkScenario[];
@@ -79,6 +120,8 @@ export interface UseDashPlayerResult {
   qualitySelection: QualitySelection;
   isAutoQuality: boolean;
   logs: LogEntry[];
+  getSegmentQosRecords: () => SegmentQosRecord[];
+  getPlaybackQoeSamples: () => PlaybackQoeSample[];
   applyScenario: (scenario: NetworkScenario) => void;
   setQualitySelection: (value: QualitySelection) => void;
   togglePlayPause: () => void;

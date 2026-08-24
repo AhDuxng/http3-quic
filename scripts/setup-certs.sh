@@ -1,43 +1,44 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-if [ -n "$1" ]; then
-  serverIp="$1"
-elif [ -f ".env" ]; then
-  serverIp=$(grep "^CORS_ORIGIN=" .env | sed 's|CORS_ORIGIN=https://||' | tr -d '[:space:]')
+domain="${1:-${DOMAIN:-}}"
+if [[ -z "${domain}" && -f .env ]]; then
+  domain="$(sed -n 's/^DOMAIN=//p' .env | tail -n 1 | tr -d '[:space:]')"
 fi
 
-if [ -z "$serverIp" ]; then
-  echo "??i dung: $0 <SERVER_IP>"
-  echo "V?? du:  $0 27.71.16.108"
-  exit 1
+if [[ -z "${domain}" ]]; then
+  domain="localhost"
 fi
 
-certDir="./caddy_config/certs"
-certFile="$certDir/server.crt"
-keyFile="$certDir/server.key"
+cert_dir="./openlitespeed_config/certs"
+cert_file="${cert_dir}/server.crt"
+key_file="${cert_dir}/server.key"
+mkdir -p "${cert_dir}"
 
-echo "==> T?o self-signed TLS cert cho IP: $serverIp"
-mkdir -p "$certDir"
+if command -v mkcert >/dev/null 2>&1; then
+  echo "==> Creating a locally trusted certificate with mkcert for: ${domain}"
+  mkcert -cert-file "${cert_file}" -key-file "${key_file}" \
+    "${domain}" localhost 127.0.0.1 ::1
+else
+  san="DNS:${domain},DNS:localhost,IP:127.0.0.1"
+  if [[ "${domain}" =~ ^[0-9a-fA-F:.]+$ ]]; then
+    san="IP:${domain},DNS:localhost,IP:127.0.0.1"
+  fi
 
-openssl req -x509 -newkey rsa:4096 \
-  -keyout "$keyFile" \
-  -out "$certFile" \
-  -sha256 -days 3650 -nodes \
-  -subj "/CN=$serverIp" \
-  -addext "subjectAltName=IP:$serverIp"
+  echo "==> mkcert was not found; creating a self-signed certificate for: ${domain}"
+  openssl req -x509 -newkey rsa:2048 \
+    -keyout "${key_file}" \
+    -out "${cert_file}" \
+    -sha256 -days 3650 -nodes \
+    -subj "/CN=${domain}" \
+    -addext "subjectAltName=${san}"
+  echo "==> Warning: browsers generally require a trusted certificate before using HTTP/3."
+fi
 
-chmod 600 "$keyFile"
-chmod 644 "$certFile"
+chmod 600 "${key_file}"
+chmod 644 "${cert_file}"
 
-echo ""
-echo "==> Cert da tao thanh cong:"
-echo "    Cert: $certFile"
-echo "    Key:  $keyFile"
-echo "    Han:  3650 ngay (~10 nam)"
-echo ""
-echo "==> Buoc tiep theo: khoi dong lai Caddy"
-echo "    docker compose restart caddy"
-echo ""
-echo "==> Sau do mo trinh duyet: https://$serverIp"
-echo "    Browser se canh bao cert -> bam Advanced -> Proceed"
+echo "==> Certificate: ${cert_file}"
+echo "==> Private key: ${key_file}"
+echo "==> Recreate OpenLiteSpeed to load it:"
+echo "    docker compose up -d --force-recreate openlitespeed"

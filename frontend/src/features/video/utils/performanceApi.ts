@@ -1,3 +1,13 @@
+export function formatNextHopProtocol(protocol?: string): string {
+  const normalized = protocol?.toLowerCase() ?? "";
+  if (normalized.startsWith("h3") || normalized.includes("quic")) {
+    return "HTTP/3 (QUIC)";
+  }
+  if (normalized === "h2") return "HTTP/2";
+  if (normalized.startsWith("http/1")) return "HTTP/1.1";
+  return "Detecting...";
+}
+
 export function detectProtocol(urlFragment?: string): string {
   try {
     const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
@@ -8,12 +18,9 @@ export function detectProtocol(urlFragment?: string): string {
     for (let i = relevant.length - 1; i >= 0; i--) {
       const proto = (relevant[i] as any).nextHopProtocol as string | undefined;
       if (!proto) continue;
-      const p = proto.toLowerCase();
-      if (p === "h3" || p === "h3-29" || p.includes("quic")) return "HTTP/3 (QUIC)";
-      if (p === "h2") return "HTTP/2";
-      if (p.startsWith("http/1")) return "HTTP/1.1";
+      const label = formatNextHopProtocol(proto);
+      if (label !== "Detecting...") return label;
     }
-    if (urlFragment) return detectProtocol(undefined);
   } catch {
     return "Detecting...";
   }
@@ -44,7 +51,11 @@ export function getTtfbFromPerformanceApi(segmentUrl: string, resourcePrefix?: s
 export function getNetworkType(): string {
   try {
     const connection = (navigator as any).connection;
-    if (connection?.type) return connection.type;
+    const physicalType = String(connection?.type ?? "").trim();
+    const effectiveType = String(connection?.effectiveType ?? "").trim();
+    if (physicalType && effectiveType) return `${physicalType}/${effectiveType}`;
+    if (physicalType) return physicalType;
+    if (effectiveType) return effectiveType;
   } catch {
     return "unknown";
   }

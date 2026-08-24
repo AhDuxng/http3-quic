@@ -3,13 +3,13 @@ import { MediaPlayer } from "dashjs";
 import type { MediaPlayerClass, QualityChangeRenderedEvent, Representation } from "dashjs";
 import type { NetworkScenario, NetworkScenarioId } from "../../../type/video";
 import type {
-  QualitySelection, StreamStats, LogEntry, LogLevel,
+  QualitySelection, StreamStats, LogEntry, LogLevel, SegmentQosRecord, PlaybackQoeSample,
   UseDashPlayerArgs, UseDashPlayerResult,
 } from "../type/dashPlayer";
 import { statsPollIntervalMs, netLogThrottleMs, defaultStats } from "../constants/dashPlayer";
 import { formatTimestamp } from "../utils/formatters";
 import { formatBitrateKbps } from "../utils/formatters";
-import { getNetworkType } from "../utils/performanceApi";
+import { detectProtocol, formatNextHopProtocol, getNetworkType } from "../utils/performanceApi";
 import { getRepBitrateKbps, getResolutionLabel, useStreamMetrics } from "./useStreamMetrics";
 import { useStallTracker } from "./useStallTracker";
 
@@ -37,8 +37,7 @@ function getFragmentTrackingKey(request: any) {
   const rawUrl = getRequestUrl(request);
   try {
     const url = new URL(rawUrl, window.location.href);
-    // exp_req changes on each transport attempt. Removing experiment-only
-    // parameters lets retries contribute to one end-to-end segment duration.
+    // Bo tham so thu nghiem de gom cac lan retry.
     url.searchParams.delete("exp_run");
     url.searchParams.delete("exp_req");
     return url.toString();
@@ -47,11 +46,26 @@ function getFragmentTrackingKey(request: any) {
   }
 }
 
+function getLatestDashHttpRequest(player: MediaPlayerClass, request: any) {
+  try {
+    const requests = player.getDashMetrics().getHttpRequests("video");
+    const targetKey = getFragmentTrackingKey(request);
+    for (let index = requests.length - 1; index >= 0; index -= 1) {
+      const candidate = requests[index] as any;
+      if (getFragmentTrackingKey(candidate) === targetKey) return candidate;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function getRequestType(request: any) {
   return String(request?.type ?? "").toLowerCase();
 }
 
 function isVideoMediaRequest(request: any) {
+  if (!request) return false;
   if (request?.mediaType && request.mediaType !== "video") return false;
   const requestType = getRequestType(request);
   return !requestType || requestType.includes("media");
@@ -126,6 +140,10 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   const [isFragmentLoading, setIsFragmentLoading] = useState(false);
   const [stats, setStats] = useState<StreamStats>(defaultStats);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const segmentQosRecordsRef = useRef<SegmentQosRecord[]>([]);
+  const playbackQoeSamplesRef = useRef<PlaybackQoeSample[]>([]);
+  const segmentRecordIdRef = useRef(0);
+  const playbackSampleIdRef = useRef(0);
   const statsRef = useRef<StreamStats>(defaultStats);
   const isAutoQualityRef = useRef(true);
   const activeScenarioIdRef = useRef<NetworkScenarioId>(activeScenarioId);
@@ -157,6 +175,8 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   }, []);
 
   const getStatsSnapshot = useCallback(() => statsRef.current, []);
+  const getSegmentQosRecords = useCallback(() => segmentQosRecordsRef.current.slice(), []);
+  const getPlaybackQoeSamples = useCallback(() => playbackQoeSamplesRef.current.slice(), []);
 
   const protocolUrlFragment = useMemo(() => {
     return getManifestResourcePrefix(manifestUrl);
@@ -223,6 +243,10 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     setStats(defaultStats);
     statsRef.current = defaultStats;
     setLogs([]);
+    segmentQosRecordsRef.current = [];
+    playbackQoeSamplesRef.current = [];
+    segmentRecordIdRef.current = 0;
+    playbackSampleIdRef.current = 0;
     setRepresentations([]);
     representationsSignatureRef.current = "";
     metrics.reset();
@@ -277,7 +301,9 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     };
     networkConnection?.addEventListener?.("change", onNetworkChange);
     const activeFragmentRequests = new Set<unknown>();
-    const failedFragmentRequests = new Set<unknown>();
+    const countedFragmentRequests = new Set<unknown>();
+    const terminalFragmentRequests = new Set<unknown>();
+    const recordedFragmentRequests = new Set<unknown>();
     const fragmentStartByRequest = new Map<unknown, number>();
     const fragmentStartByKey = new Map<string, number>();
     const markFragmentStarted = (request: unknown) => {
@@ -302,9 +328,14 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       return startedAt === undefined ? null : Math.max(0, performance.now() - startedAt);
     };
     const recordFragmentFailureOnce = (request: unknown) => {
-      if (request && failedFragmentRequests.has(request)) return;
-      if (request) failedFragmentRequests.add(request);
+      if (!request || terminalFragmentRequests.has(request)) return;
+      terminalFragmentRequests.add(request);
       metrics.recordFragmentFailure();
+    };
+    const recordFragmentAbandonOnce = (request: unknown) => {
+      if (!request || terminalFragmentRequests.has(request)) return;
+      terminalFragmentRequests.add(request);
+      metrics.recordFragmentAbandon();
     };
     const runId = crypto.randomUUID();
     let requestId = 0;
@@ -404,6 +435,57 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       }
     };
 
+    const recordSegmentQos = (
+      request: any,
+      event: any,
+      wallDurationMs: number | null,
+      status: SegmentQosRecord["status"],
+    ) => {
+      if (!request || !isVideoMediaRequest(request)) return null;
+      if (recordedFragmentRequests.has(request)) return null;
+      recordedFragmentRequests.add(request);
+
+      const dashHttpRequest = getLatestDashHttpRequest(player, request);
+      const measured = metrics.processSegment(
+        request,
+        event,
+        wallDurationMs,
+        dashHttpRequest,
+        status === "completed",
+      );
+      const protocolLabel = formatNextHopProtocol(measured.nextHopProtocol);
+      segmentQosRecordsRef.current.push({
+        id: ++segmentRecordIdRef.current,
+        replay: currentReplayRef.current,
+        timestamp: new Date().toISOString(),
+        streamTitle,
+        segmentLabel: logSegmentLabel,
+        url: getRequestUrl(request),
+        requestType: String(request?.type ?? dashHttpRequest?.type ?? ""),
+        representationId: String(request?.representationId ?? dashHttpRequest?._quality ?? ""),
+        status,
+        responseStatus: measured.responseStatus,
+        protocolLabel: protocolLabel === "Detecting..."
+          ? detectProtocol(getRequestUrl(request))
+          : protocolLabel,
+        networkType: getNetworkType(),
+        bytesLoaded: measured.bytesLoaded,
+        encodedBodySizeBytes: measured.encodedBodySizeBytes,
+        transferSizeBytes: measured.transferSizeBytes,
+        resourceTimingSizeDeltaBytes: measured.resourceTimingSizeDeltaBytes,
+        downloadTimeMs: measured.durationMs,
+        downloadSpeedKbps: measured.downloadSpeedKbps,
+        payloadRateKbps: measured.payloadRateKbps,
+        ttfbMs: measured.ttfbMs,
+        segmentDownloadTimeVariationMs: measured.segmentDownloadTimeVariationMs,
+        connectionSetupMs: measured.connectionSetupMs,
+        dnsMs: measured.dnsMs,
+        connectMs: measured.connectMs,
+        secureHandshakeMs: measured.secureHandshakeMs,
+      });
+      return measured;
+    };
+
     const onFragmentStarted = (event: any) => {
       if (!isCurrentSession()) return;
       const request = event?.request;
@@ -412,6 +494,8 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       setIsFragmentLoading(true);
       addSessionLog("NET", `SEGMENT START: ${getRequestUrl(request)}`);
       if (!isVideoMediaRequest(request)) return;
+      if (countedFragmentRequests.has(request)) return;
+      countedFragmentRequests.add(request);
       metrics.recordFragmentRequest();
     };
 
@@ -421,6 +505,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         const request = event?.request;
         const wallDurationMs = markFragmentFinished(request);
         if (event?.error) {
+          recordSegmentQos(request, event, wallDurationMs, "failed");
           addSessionLog(
             "ERRO",
             `SEGMENT FAILED: ${getRequestUrl(request)}${formatFragmentFailureDetails(event)}`,
@@ -429,14 +514,13 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
           return;
         }
 
-        addSessionLog("NET", `SEGMENT COMPLETE: ${getRequestUrl(request)}`);
         if (!isVideoMediaRequest(request)) return;
 
-        const { bytesLoaded, durationMs } = metrics.processSegment(
-          event?.request,
-          event,
-          wallDurationMs,
-        );
+        const measured = recordSegmentQos(request, event, wallDurationMs, "completed");
+        terminalFragmentRequests.add(request);
+        addSessionLog("NET", `SEGMENT COMPLETE: ${getRequestUrl(request)}`);
+        if (!measured) return;
+        const { bytesLoaded, durationMs } = measured;
         const now = Date.now();
         if (now - lastNetLogRef.current < netLogThrottleMs) return;
         if (bytesLoaded === 0 && durationMs === 0) return;
@@ -452,9 +536,10 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     const onFragmentAbandoned = (event: any) => {
       if (!isCurrentSession()) return;
       const request = event?.request;
-      markFragmentFinished(request);
+      const wallDurationMs = markFragmentFinished(request);
       if (!isVideoMediaRequest(request)) return;
-      metrics.recordFragmentAbandon();
+      recordSegmentQos(request, event, wallDurationMs, "abandoned");
+      recordFragmentAbandonOnce(request);
       addSessionLog("WARN", `SEGMENT ABANDONED: ${getRequestUrl(request)} (ABR)`);
     };
 
@@ -463,7 +548,10 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       const error = event?.error;
       const request = error?.data?.request;
       if (request) {
-        markFragmentFinished(request);
+        const wallDurationMs = markFragmentFinished(request);
+        if (isFragmentFailure(error?.code ?? error?.data?.code, error?.message) && isVideoMediaRequest(request)) {
+          recordSegmentQos(request, event, wallDurationMs, "failed");
+        }
       } else {
         activeFragmentRequests.clear();
         fragmentStartByRequest.clear();
@@ -482,7 +570,15 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     const onBufferEmpty = (event: any) => {
       if (!isCurrentSession()) return;
       if (event?.mediaType !== "video") return;
-      stall.onBufferEmpty();
+      const video = videoRef.current;
+      const started = stall.onBufferEmpty(
+        statsRef.current.startupDelayMs > 0
+          && !!video
+          && !video.paused
+          && !video.ended
+          && !video.seeking,
+      );
+      if (!started) return;
       const snap = stall.getSnapshot();
       addSessionLog("WARN", `Stall #${snap.stallCount} — buffer empty`, { stallCount: snap.stallCount });
     };
@@ -509,6 +605,20 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     player.on(MediaPlayer.events.BUFFER_EMPTY, onBufferEmpty);
     player.on(MediaPlayer.events.BUFFER_LOADED, onBufferLoaded);
 
+    const recordPlaybackQoeSample = (video: HTMLVideoElement) => {
+      playbackQoeSamplesRef.current.push({
+        id: ++playbackSampleIdRef.current,
+        replay: currentReplayRef.current,
+        timestamp: new Date().toISOString(),
+        streamTitle,
+        segmentLabel: logSegmentLabel,
+        isPlaying: !video.paused && !video.ended,
+        isAutoQuality: isAutoQualityRef.current,
+        activeScenarioLabel: scenarioById.get(activeScenarioIdRef.current)?.label ?? "Not applied",
+        stats: { ...statsRef.current },
+      });
+    };
+
     const pollId = window.setInterval(() => {
       const video = videoRef.current;
       const currentPlayer = playerRef.current;
@@ -517,15 +627,29 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       if (isReplayDoneRef.current) return;
       syncReps();
       metrics.pollStats(video, currentPlayer, stall.getSnapshot().stallAccumulatedMs);
+      recordPlaybackQoeSample(video);
     }, statsPollIntervalMs);
 
     const video = videoRef.current;
+    let firstFrameCallbackId: number | null = null;
+    const supportsVideoFrameCallback = typeof video?.requestVideoFrameCallback === "function";
+    const scheduleFirstRenderedFrame = () => {
+      if (!video || !supportsVideoFrameCallback || firstFrameCallbackId !== null) return;
+      firstFrameCallbackId = video.requestVideoFrameCallback((renderedAtMs) => {
+        firstFrameCallbackId = null;
+        metrics.markFirstFrame(renderedAtMs);
+      });
+    };
     const onPlay = () => {
       if (!isCurrentSession()) return;
-      metrics.markPlayRequested(); setIsPlaying(true); addSessionLog("SYS", "Playback started.");
+      metrics.markPlayRequested();
+      scheduleFirstRenderedFrame();
+      setIsPlaying(true);
+      addSessionLog("SYS", "Playback started.");
     };
     const onPause = () => {
       if (!isCurrentSession()) return;
+      stall.onBufferLoaded();
       setIsPlaying(false); addSessionLog("SYS", "Playback paused.");
     };
     const onWaiting = () => {
@@ -534,11 +658,11 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     };
     const onLoadedData = () => {
       if (!isCurrentSession()) return;
-      metrics.markFirstFrame();
+      if (!supportsVideoFrameCallback) metrics.markFirstFrame();
     };
     const onPlaying = () => {
       if (!isCurrentSession()) return;
-      metrics.markFirstFrame();
+      if (!supportsVideoFrameCallback) metrics.markFirstFrame();
     };
 
     let lastEndedHandledAt = 0;
@@ -551,7 +675,13 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       const maxReplays = replayCountRef.current;
       const curReplay = currentReplayRef.current;
       const replayPlaybackTime = video?.currentTime ?? statsRef.current.currentTime;
-      metrics.completeReplay(replayPlaybackTime, stall.getSnapshot().stallAccumulatedMs);
+      stall.onBufferLoaded();
+      const stallDurationMs = stall.getSnapshot().stallAccumulatedMs;
+      if (video && playerRef.current) {
+        metrics.pollStats(video, playerRef.current, stallDurationMs);
+      }
+      metrics.completeReplay(replayPlaybackTime, stallDurationMs);
+      if (video) recordPlaybackQoeSample(video);
 
       if (maxReplays === 0) {
         const nextReplay = curReplay + 1;
@@ -601,6 +731,9 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         playerSessionIdRef.current += 1;
       }
       window.clearInterval(pollId);
+      if (video && firstFrameCallbackId !== null && typeof video.cancelVideoFrameCallback === "function") {
+        video.cancelVideoFrameCallback(firstFrameCallbackId);
+      }
       video?.removeEventListener("play", onPlay);
       video?.removeEventListener("pause", onPause);
       video?.removeEventListener("waiting", onWaiting);
@@ -610,6 +743,9 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       player.off(MediaPlayer.events.PLAYBACK_ENDED, onEnded);
       networkConnection?.removeEventListener?.("change", onNetworkChange);
       activeFragmentRequests.clear();
+      countedFragmentRequests.clear();
+      terminalFragmentRequests.clear();
+      recordedFragmentRequests.clear();
       fragmentStartByRequest.clear();
       fragmentStartByKey.clear();
       setIsFragmentLoading(false);
@@ -619,7 +755,18 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         playerRef.current = null;
       }
     };
-  }, [manifestUrl, syncReps, addLog, updateStats, metrics, stall, streamTitle, resetMeasurementState]);
+  }, [
+    manifestUrl,
+    syncReps,
+    addLog,
+    updateStats,
+    metrics,
+    stall,
+    streamTitle,
+    resetMeasurementState,
+    logSegmentLabel,
+    scenarioById,
+  ]);
 
   const applyScenario = useCallback(async (scenario: NetworkScenario) => {
     const player = playerRef.current;
@@ -706,6 +853,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   return {
     videoRef, representations, isPlaying, isFragmentLoading, stats, activeScenarioId,
     qualitySelection, isAutoQuality, logs,
+    getSegmentQosRecords, getPlaybackQoeSamples,
     applyScenario, setQualitySelection, togglePlayPause, play, pause, resetStats,
     getStatsSnapshot,
     replayCount, currentReplay, isReplayDone, setReplayCount,
