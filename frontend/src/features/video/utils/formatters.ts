@@ -1,7 +1,5 @@
 export function formatTimestamp(date: Date): string {
-  const pad = (value: number, length = 2) => String(value).padStart(length, "0");
-  const cs = pad(Math.floor(date.getMilliseconds() / 10));
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${cs}`;
+  return date.toISOString();
 }
 
 export function formatBitrateKbps(kbps: number): string {

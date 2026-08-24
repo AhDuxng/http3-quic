@@ -3,6 +3,12 @@ import type { RefObject } from "react";
 import type { NetworkScenario, NetworkScenarioId } from "../../../type/video";
 
 export type QualitySelection = "auto" | number;
+export type StartupDelayMethod =
+  | "not-measured"
+  | "first-rendered-frame"
+  | "loadeddata-fallback"
+  | "playing-fallback"
+  | "playhead-fallback";
 
 export type LogLevel = "INFO" | "WARN" | "ERRO" | "NET" | "SYS";
 
@@ -51,7 +57,8 @@ export interface StreamStats {
   qualitySwitchCount: number;
   qualityUpSwitchCount: number;
   qualityDownSwitchCount: number;
-  startupDelayMs: number;
+  startupDelayToFirstFrameMs: number;
+  startupDelayMethod: StartupDelayMethod;
 
   currentTime: number;
   duration: number;
@@ -70,8 +77,10 @@ export interface SegmentQosRecord {
   streamTitle: string;
   segmentLabel: string;
   url: string;
+  mediaType: "video";
   requestType: string;
-  representationId: string;
+  representationId: string | null;
+  qualityIndex: number | null;
   status: SegmentRequestStatus;
   responseStatus: number;
   protocolLabel: string;
@@ -100,6 +109,7 @@ export interface PlaybackQoeSample {
   isPlaying: boolean;
   isAutoQuality: boolean;
   activeScenarioLabel: string;
+  qualitySemantics: "video-quality-change-rendered-session-cumulative-initial-selection-excluded";
   stats: StreamStats;
 }
 

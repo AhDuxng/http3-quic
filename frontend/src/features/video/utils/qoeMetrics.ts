@@ -1,4 +1,4 @@
-export type QualitySwitchDirection = "up" | "down" | "same" | "unknown";
+export type QualitySwitchDirection = "up" | "down" | "lateral" | "same" | "unknown";
 
 export interface FrameSample {
   timeSec: number;
@@ -31,8 +31,8 @@ export function calculateQualitySwitchTotals(
   direction: QualitySwitchDirection,
   current: QualitySwitchTotals,
 ): QualitySwitchTotals {
-  // QoE: dem so lan ABR doi chat luong da render, tach rieng so lan tang/giam chat luong.
-  if (direction !== "up" && direction !== "down") return current;
+  // QoE: dem moi lan doi representation da render; up/down chi phan loai huong doi.
+  if (direction !== "up" && direction !== "down" && direction !== "lateral") return current;
 
   return {
     qualitySwitchCount: current.qualitySwitchCount + 1,

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef } from "react";
 import type { RefObject } from "react";
 import type { MediaPlayerClass, Representation } from "dashjs";
-import type { StreamStats } from "../type/dashPlayer";
+import type { StartupDelayMethod, StreamStats } from "../type/dashPlayer";
 import { detectProtocol, getNetworkType } from "../utils/performanceApi";
 import {
   calculateAverageThroughputKbps,
@@ -91,10 +91,20 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
     }
   }, []);
 
-  const markFirstFrame = useCallback((renderedAtMs = performance.now()) => {
-    if (playRequestedAtMsRef.current === null || statsRef.current.startupDelayMs > 0) return;
+  const markFirstFrame = useCallback((
+    renderedAtMs = performance.now(),
+    method: Exclude<StartupDelayMethod, "not-measured"> = "first-rendered-frame",
+  ) => {
+    if (
+      playRequestedAtMsRef.current === null
+      || statsRef.current.startupDelayMethod !== "not-measured"
+    ) return;
     const startupDelayMs = calculateStartupDelayMs(playRequestedAtMsRef.current, renderedAtMs);
-    updateStats((prev) => ({ ...prev, startupDelayMs }));
+    updateStats((prev) => ({
+      ...prev,
+      startupDelayToFirstFrameMs: startupDelayMs,
+      startupDelayMethod: method,
+    }));
   }, [statsRef, updateStats]);
 
   const processSegment = useCallback((
@@ -146,7 +156,7 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
   }, [protocolUrlFragment, updateStats]);
 
   const incrementQualitySwitch = useCallback((direction: QualitySwitchDirection = "unknown") => {
-    // QoE: tinh so lan doi chat luong, gom tong so lan va so lan tang/giam chat luong.
+    // QoE: dem representation da render; tach rieng so lan tang/giam.
     const totals = calculateQualitySwitchTotals(direction, {
       qualitySwitchCount: qualitySwitchCountRef.current,
       qualityUpSwitchCount: qualityUpSwitchCountRef.current,
@@ -217,8 +227,12 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
       freezeEventCountRef.current = frozenResult.freezeEventCount;
       frozenSampleRef.current = frozenResult.nextSample;
 
-      if (playRequestedAtMsRef.current !== null && statsRef.current.startupDelayMs === 0 && currentTime > 0) {
-        markFirstFrame();
+      if (
+        playRequestedAtMsRef.current !== null
+        && statsRef.current.startupDelayMethod === "not-measured"
+        && currentTime > 0
+      ) {
+        markFirstFrame(performance.now(), "playhead-fallback");
       }
 
       // QoE: tinh ty le rebuffering bang tong thoi gian stall chia cho tong thoi gian phien xem do duoc.
@@ -269,7 +283,12 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
     bitrateSampleRef.current = null;
     frozenSampleRef.current = null;
     playRequestedAtMsRef.current = null;
-    updateStats((prev) => ({ ...prev, startupDelayMs: 0, currentTime: 0 }));
+    updateStats((prev) => ({
+      ...prev,
+      startupDelayToFirstFrameMs: 0,
+      startupDelayMethod: "not-measured",
+      currentTime: 0,
+    }));
   }, [updateStats]);
 
   const reset = useCallback(() => {

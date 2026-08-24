@@ -393,6 +393,16 @@ recovery_time = time_quality_back_to_baseline - time_network_impairment_started
 
 ---
 
+### 4.1. Quy ước dataset của ứng dụng
+
+- `TimestampUTC` luôn dùng ISO 8601 UTC, ví dụ `2026-08-24T04:20:31.125Z`.
+- `RepresentationId` lấy từ `FragmentRequest.representationId`. Không thay ID bằng quality index; quality index được lưu riêng ở `QualityIndex`.
+- `StartupDelay` được đo riêng cho mỗi replay, từ lúc yêu cầu phát đến frame video đầu tiên được render. `StartupDelayMethod` ghi `first-rendered-frame`; nếu trình duyệt không hỗ trợ callback frame thì ghi rõ loại fallback.
+- Bitrate, resolution và quality switch là video quality đã render. Switch được cộng dồn trong phiên, chỉ đếm sự kiện `QUALITY_CHANGE_RENDERED` có old/new representation khác nhau; lựa chọn quality khởi tạo không tính là switch.
+- QoS chỉ ghi request có `mediaType=video` và `type=MediaSegment`. MPD, audio và initialization segment không nằm trong dataset QoS hay mẫu số failure/abandon.
+
+---
+
 ## 5. Code TypeScript đo QoS/QoE với dash.js
 
 ### 5.1. Cài đặt
@@ -445,11 +455,11 @@ interface QualitySwitchMetric {
   bitrateKbps: number | null;
   width: number | null;
   height: number | null;
-  direction: 'up' | 'down' | 'same' | 'unknown';
+  direction: 'up' | 'down' | 'lateral' | 'same' | 'unknown';
 }
 
 interface MonitorSnapshot {
-  timestampMs: number;
+  timestampUTC: string;
 
   // QoS
   avgThroughputVideoMbps: number | null;
@@ -466,8 +476,8 @@ interface MonitorSnapshot {
   resourceTimingSizeDeltaBytes: number | null;
 
   // QoE
-  startupDelayMs: number | null;
-  firstFrameDelayMs: number | null;
+  startupDelayToFirstRenderedFrameMs: number | null;
+  startupDelayMethod: 'not-measured' | 'first-rendered-frame' | 'loadeddata-fallback' | 'playing-fallback' | 'playhead-fallback';
   rebufferingRatio: number;
   rebufferingFrequency: number;
   totalRebufferingMs: number;
@@ -696,7 +706,7 @@ export class DashMetricsMonitor {
     const droppedFrames = this.getDroppedFrames();
 
     return {
-      timestampMs: Date.now(),
+      timestampUTC: new Date().toISOString(),
 
       avgThroughputVideoMbps: this.kbpsToMbps(
         this.safeDashCall(() => this.player.getAverageThroughput('video'))
@@ -716,16 +726,18 @@ export class DashMetricsMonitor {
       resourceTimingSizeDeltaBytes:
         resourceTimingSizeDeltas.length > 0 ? avg(resourceTimingSizeDeltas) : null,
 
-      startupDelayMs:
-        this.playRequestedAtMs !== null && this.firstPlayingAtMs !== null
-          ? this.firstPlayingAtMs - this.playRequestedAtMs
-          : null,
-      firstFrameDelayMs:
+      startupDelayToFirstRenderedFrameMs:
         this.playRequestedAtMs !== null && this.firstFrameRenderedAtMs !== null
           ? this.firstFrameRenderedAtMs - this.playRequestedAtMs
           : this.playRequestedAtMs !== null && this.firstLoadedDataAtMs !== null
             ? this.firstLoadedDataAtMs - this.playRequestedAtMs
             : null,
+      startupDelayMethod:
+        this.firstFrameRenderedAtMs !== null
+          ? 'first-rendered-frame'
+          : this.firstLoadedDataAtMs !== null
+            ? 'loadeddata-fallback'
+            : 'not-measured',
       rebufferingRatio: sessionDenominator > 0 ? stallMs / sessionDenominator : 0,
       rebufferingFrequency: this.rebufferingFrequency,
       totalRebufferingMs: stallMs,
@@ -1224,8 +1236,8 @@ window.setInterval(() => {
         connectionSetupMs: snapshot.connectionSetupMs
       },
       QoE: {
-        startupDelayMs: snapshot.startupDelayMs,
-        firstFrameDelayMs: snapshot.firstFrameDelayMs,
+        startupDelayToFirstRenderedFrameMs: snapshot.startupDelayToFirstRenderedFrameMs,
+        startupDelayMethod: snapshot.startupDelayMethod,
         rebufferingRatio: snapshot.rebufferingRatio,
         rebufferingFrequency: snapshot.rebufferingFrequency,
         totalRebufferingMs: snapshot.totalRebufferingMs,
@@ -1395,13 +1407,14 @@ Nên lưu sample-level log:
 
 ```json
 {
-  "timestampMs": 1710000000000,
+  "timestampUTC": "2026-08-24T04:20:31.125Z",
   "protocol": "DASH",
   "networkProfile": "loss_2_percent",
   "throughputMbps": 5.2,
   "httpLatencyMs": 83,
   "httpLatencyVariationMs": 12,
-  "startupDelayMs": 940,
+  "startupDelayToFirstRenderedFrameMs": 940,
+  "startupDelayMethod": "first-rendered-frame",
   "rebufferingRatio": 0.01,
   "qualitySwitches": 3,
   "averageBitrateKbps": 2800,
