@@ -1,6 +1,6 @@
 # YouTube Clone HTTP/3 (QUIC)
 
-React/Vite + Node.js/Express + OpenLiteSpeed/LSQUIC. Dùng để phát DASH video và test HTTP/1.1, HTTP/2, HTTP/3.
+React/Vite + Node.js/Express, có thể chuyển giữa Caddy và OpenLiteSpeed/LSQUIC. Dùng để phát DASH video và test HTTP/1.1, HTTP/2, HTTP/3.
 
 ## Cấu trúc
 
@@ -8,6 +8,7 @@ React/Vite + Node.js/Express + OpenLiteSpeed/LSQUIC. Dùng để phát DASH vide
 http3-quic/
 ├── backend/              # Express API
 ├── frontend/             # React/Vite app
+├── caddy_config/         # Caddy local/production + HTTP/3
 ├── openlitespeed_config/
 │   ├── Dockerfile        # image OpenLiteSpeed 1.8.5
 │   ├── httpd_config.conf # HTTP/HTTPS listeners + HTTP/3
@@ -73,8 +74,11 @@ TearsOfSteel: 1sec, 2sec, 4sec, 6sec
 ```bash
 git clone <repo-url>
 cd http3-quic
+cp .env.example .env
 docker compose up -d --build
 ```
+
+Mặc định dùng OpenLiteSpeed/LSQUIC. Biến `COMPOSE_PROFILES` trong `.env` xác định proxy đang dùng: `openlitespeed` hoặc `caddy`.
 
 Lần chạy đầu, container tự tạo self-signed certificate cho giá trị `DOMAIN`. HTTPS sẽ chạy ngay nhưng trình duyệt có thể cảnh báo certificate. Để tạo certificate local được tin cậy, cài `mkcert` rồi chạy:
 
@@ -92,6 +96,7 @@ Nếu `mkcert` không có, script sẽ tạo self-signed certificate bằng Open
 ```dotenv
 DOMAIN=video.example.com
 CORS_ORIGIN=https://video.example.com
+COMPOSE_PROFILES=openlitespeed
 ```
 
 OpenLiteSpeed đọc certificate thật từ hai file sau:
@@ -112,11 +117,40 @@ docker compose -f docker-compose.prod.yml up -d --build --force-recreate
 
 Sau mỗi lần certificate được gia hạn, cập nhật hai file trên và recreate service `openlitespeed`. WebAdmin không được public; toàn bộ cấu hình nằm trong repo.
 
+### Chuyển đổi proxy
+
+Script chuyển đổi sẽ dừng backend và proxy cũ trước, sau đó bật proxy mới và recreate backend trong cùng network namespace. Cách này giữ nguyên chức năng mô phỏng mạng bằng `tc/netem` và tránh tranh chấp cổng `80/443`.
+
+Local:
+
+```bash
+./scripts/switch-proxy.sh caddy
+./scripts/switch-proxy.sh lsquic
+./scripts/switch-proxy.sh status
+```
+
+Production:
+
+```bash
+./scripts/switch-proxy.sh caddy --prod
+./scripts/switch-proxy.sh lsquic --prod
+```
+
+Khi dùng Caddy production, Caddy tự cấp và gia hạn certificate trong volume `caddy_data`. Khi chuyển về OpenLiteSpeed, certificate thật vẫn phải có tại:
+
+```text
+openlitespeed_config/certs/server.crt
+openlitespeed_config/certs/server.key
+```
+
+Cả hai proxy đều public `80/tcp`, `443/tcp`, `443/udp` và quảng bá HTTP/3. Quá trình chuyển có một khoảng gián đoạn ngắn khi container cũ dừng và container mới khởi động.
+
 ## Kiểm tra
 
 ```bash
 docker compose ps
 docker compose logs -f openlitespeed
+docker compose logs -f caddy
 curl -kI https://<domain>/video/BigBuckBunny/4sec/BigBuckBunny_4s_simple_2014_05_09.mpd
 curl --http3-only -I https://<domain>/video/BigBuckBunny/4sec/BigBuckBunny_4s_simple_2014_05_09.mpd
 ```
