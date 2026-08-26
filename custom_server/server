@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${CUSTOM_MODE:-mpquic}"
+if [[ "${1:-}" == "--mode" ]]; then
+  mode="${2:-}"
+  shift 2
+fi
+
+case "${mode}" in
+  h2|quic|mpquic) ;;
+  *)
+    echo "Mode khong hop le: ${mode}. Dung h2, quic hoac mpquic." >&2
+    exit 2
+    ;;
+esac
+
+scheduler="${CUSTOM_SCHEDULER:-default}"
+if [[ "${scheduler}" != "default" ]]; then
+  echo "Picoquic chua co API scheduler cong khai cho ${scheduler}; hien chi ho tro default." >&2
+  exit 2
+fi
+
+readonly mounted_cert="/run/tls/server.crt"
+readonly mounted_key="/run/tls/server.key"
+readonly cert_dir="/var/lib/custom-server/cert"
+readonly cert_file="${cert_dir}/server.crt"
+readonly key_file="${cert_dir}/server.key"
+readonly domain="${DOMAIN:-localhost}"
+
+mkdir -p "${cert_dir}" /var/log/custom-server/qlog /srv/www
+ln -sfn /srv/video /srv/www/video
+
+if [[ -s "${mounted_cert}" && -s "${mounted_key}" ]]; then
+  cp "${mounted_cert}" "${cert_file}"
+  cp "${mounted_key}" "${key_file}"
+elif [[ ! -s "${cert_file}" || ! -s "${key_file}" ]]; then
+  san="DNS:${domain},DNS:localhost,IP:127.0.0.1"
+  if [[ "${domain}" =~ ^[0-9a-fA-F:.]+$ ]]; then
+    san="IP:${domain},DNS:localhost,IP:127.0.0.1"
+  fi
+  openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
+    -keyout "${key_file}" -out "${cert_file}" \
+    -subj "/CN=${domain}" -addext "subjectAltName=${san}"
+fi
+
+chmod 600 "${key_file}"
+chmod 644 "${cert_file}"
+export CUSTOM_MODE="${mode}"
+export TLS_CERT_FILE="${cert_file}"
+export TLS_KEY_FILE="${key_file}"
+export CUSTOM_H3_ACCESS_LOG="${CUSTOM_H3_ACCESS_LOG:-/var/log/custom-server/h3-access.jsonl}"
+if [[ -z "${RUN_ID:-}" ]]; then
+  RUN_ID="run-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+fi
+export RUN_ID
+
+if [[ "${mode}" == "h2" ]]; then
+  exec node /opt/custom-server/server.mjs "$@"
+fi
+
+quic_args=(
+  -p 443
+  -c "${cert_file}"
+  -k "${key_file}"
+  -w /srv/www
+  -q /var/log/custom-server/qlog
+  -F /var/log/custom-server/picoquic-performance.csv
+)
+if [[ "${mode}" == "mpquic" ]]; then
+  quic_args+=(-M)
+fi
+
+echo "[custom:${mode}] UDP/443, picoquic H3, scheduler=${scheduler}"
+picoquicdemo "${quic_args[@]}" &
+quic_pid=$!
+node /opt/custom-server/server.mjs "$@" &
+h2_pid=$!
+
+shutdown() {
+  kill -TERM "${h2_pid}" "${quic_pid}" 2>/dev/null || true
+  wait "${h2_pid}" "${quic_pid}" 2>/dev/null || true
+}
+trap shutdown EXIT INT TERM
+
+wait -n "${h2_pid}" "${quic_pid}"

@@ -1,6 +1,6 @@
 # YouTube Clone HTTP/3 (QUIC)
 
-React/Vite + Node.js/Express, có thể chuyển giữa Caddy và OpenLiteSpeed/LSQUIC. Dùng để phát DASH video và test HTTP/1.1, HTTP/2, HTTP/3.
+React/Vite + Node.js/Express, có thể chuyển giữa Caddy, OpenLiteSpeed/LSQUIC và custom picoquic server. Dùng để phát DASH video và test HTTP/1.1, HTTP/2, HTTP/3/MPQUIC.
 
 ## Cấu trúc
 
@@ -9,6 +9,7 @@ http3-quic/
 ├── backend/              # Express API
 ├── frontend/             # React/Vite app
 ├── caddy_config/         # Caddy local/production + HTTP/3
+├── custom_server/        # H2 + picoquic H3/MPQUIC
 ├── openlitespeed_config/
 │   ├── Dockerfile        # image OpenLiteSpeed 1.8.5
 │   ├── httpd_config.conf # HTTP/HTTPS listeners + HTTP/3
@@ -117,7 +118,7 @@ docker compose -f docker-compose.prod.yml up -d --build --force-recreate
 
 Sau mỗi lần certificate được gia hạn, cập nhật hai file trên và recreate service `openlitespeed`. WebAdmin không được public; toàn bộ cấu hình nằm trong repo.
 
-### Chuyển đổi proxy
+### Chuyển đổi server
 
 Script chuyển đổi sẽ dừng backend và proxy cũ trước, sau đó bật proxy mới và recreate backend trong cùng network namespace. Cách này giữ nguyên chức năng mô phỏng mạng bằng `tc/netem` và tránh tranh chấp cổng `80/443`.
 
@@ -126,6 +127,7 @@ Local:
 ```bash
 ./scripts/switch-proxy.sh caddy
 ./scripts/switch-proxy.sh lsquic
+CUSTOM_MODE=mpquic RUN_ID=local-001 ./scripts/switch-proxy.sh custom
 ./scripts/switch-proxy.sh status
 ```
 
@@ -134,6 +136,7 @@ Production:
 ```bash
 ./scripts/switch-proxy.sh caddy --prod
 ./scripts/switch-proxy.sh lsquic --prod
+CUSTOM_MODE=mpquic RUN_ID=wifi-cell-001 ./scripts/switch-proxy.sh custom --prod
 ```
 
 Khi dùng Caddy production, Caddy tự cấp và gia hạn certificate trong volume `caddy_data`. Khi chuyển về OpenLiteSpeed, certificate thật vẫn phải có tại:
@@ -143,7 +146,9 @@ openlitespeed_config/certs/server.crt
 openlitespeed_config/certs/server.key
 ```
 
-Cả hai proxy đều public `80/tcp`, `443/tcp`, `443/udp` và quảng bá HTTP/3. Quá trình chuyển có một khoảng gián đoạn ngắn khi container cũ dừng và container mới khởi động.
+Caddy, OpenLiteSpeed và custom server đều public `80/tcp`, `443/tcp`, `443/udp`; mode custom `h2` không mở listener UDP. Quá trình chuyển có một khoảng gián đoạn ngắn khi container cũ dừng và container mới khởi động.
+
+Custom server hỗ trợ `h2`, `quic`, `mpquic`, dùng chung certificate/domain và mount video. Chi tiết client multipath, scheduler và log thí nghiệm xem tại [custom_server/README.md](custom_server/README.md).
 
 ## Kiểm tra
 

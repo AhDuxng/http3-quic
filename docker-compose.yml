@@ -1,4 +1,35 @@
 services:
+  custom:
+    profiles: ["custom"]
+    build:
+      context: .
+      dockerfile: custom_server/Dockerfile
+    container_name: custom_server
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "${HTTP_PORT:-80}:80/tcp"
+      - "${HTTPS_PORT:-443}:443/tcp"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./video:/srv/video:ro
+      - ./openlitespeed_config/certs:/run/tls:ro
+      - ./logs/custom-server:/var/log/custom-server
+      - custom_server_certs:/var/lib/custom-server/cert
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      - PORT=${PORT:-3000}
+      - CUSTOM_MODE=${CUSTOM_MODE:-mpquic}
+      - CUSTOM_SCHEDULER=${CUSTOM_SCHEDULER:-default}
+      - CUSTOM_ADVERTISE_H3=${CUSTOM_ADVERTISE_H3:-true}
+      - RUN_ID=${RUN_ID:-}
+    command: ["--mode", "${CUSTOM_MODE:-mpquic}"]
+    depends_on:
+      - frontend
+    networks:
+      - app-network
+
   caddy:
     profiles: ["caddy"]
     build:
@@ -88,4 +119,5 @@ networks:
 volumes:
   caddy_data:
   caddy_runtime_config:
+  custom_server_certs:
   openlitespeed_certs:
