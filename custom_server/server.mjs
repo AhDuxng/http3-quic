@@ -174,22 +174,38 @@ const blockedProxyHeaders = new Set([
 ]);
 
 function proxyRequest(req, res, hostname, port) {
-  const headers = { ...req.headers, host: hostname };
-  for (const name of blockedProxyHeaders) delete headers[name];
-  const upstream = http.request({ hostname, port, path: req.url, method: req.method, headers }, (upstreamRes) => {
-    res.statusCode = upstreamRes.statusCode || 502;
-    for (const [name, value] of Object.entries(upstreamRes.headers)) {
-      if (!blockedProxyHeaders.has(name) && value !== undefined) res.setHeader(name, value);
+  const headers = {};
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (!name.startsWith(":") && !blockedProxyHeaders.has(name) && value !== undefined) {
+      headers[name] = value;
     }
-    applyCommonHeaders(res);
-    upstreamRes.pipe(res);
-  });
-  upstream.on("error", (error) => {
+  }
+  headers.host = hostname;
+
+  const handleProxyError = (error) => {
     if (!res.headersSent) {
       res.statusCode = 502;
       res.setHeader("content-type", "application/json");
     }
-    res.end(JSON.stringify({ error: "upstream_unavailable", detail: error.message }));
+    if (!res.writableEnded) res.end(JSON.stringify({ error: "upstream_unavailable", detail: error.message }));
+  };
+
+  let upstream;
+  try {
+    upstream = http.request({ hostname, port, path: req.url, method: req.method, headers }, (upstreamRes) => {
+      res.statusCode = upstreamRes.statusCode || 502;
+      for (const [name, value] of Object.entries(upstreamRes.headers)) {
+        if (!blockedProxyHeaders.has(name) && value !== undefined) res.setHeader(name, value);
+      }
+      applyCommonHeaders(res);
+      upstreamRes.pipe(res);
+    });
+  } catch (error) {
+    handleProxyError(error);
+    return;
+  }
+  upstream.on("error", (error) => {
+    handleProxyError(error);
   });
   req.pipe(upstream);
 }
@@ -207,7 +223,7 @@ tlsServer.on("request", (req, res) => {
   applyCommonHeaders(res);
   const pathname = new URL(req.url || "/", "https://custom.invalid").pathname;
 
-  if (pathname === "/custom-server/info") {
+  if (pathname === "/custom-server/info" || pathname === "/custom-server-info.json") {
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ server: "custom", mode, h2: true, h3: mode !== "h2", multipath: mode === "mpquic", scheduler, advertise_h3: advertiseH3 }));
   } else if (pathname.startsWith("/video/")) {

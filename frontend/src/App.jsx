@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FaArrowLeft, FaCheck, FaPause, FaPlay, FaRedo, FaVideo } from "react-icons/fa";
 import VideoPlayer from "./features/video/components/VideoPlayer";
 import { VideoSetupPanel } from "./features/video/components/VideoSetupPanel";
@@ -33,6 +33,21 @@ function App() {
   const [selectedSingleId, setSelectedSingleId] = useState(videoCatalog[0].id);
   const [selectedDualIds, setSelectedDualIds] = useState(videoCatalog.slice(0, 2).map((video) => video.id));
   const [detectedProtocol, setDetectedProtocol] = useState("Detecting...");
+  const [customServerMode, setCustomServerMode] = useState(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/custom-server-info.json", { cache: "no-store", signal: controller.signal })
+      .then((response) => {
+        if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) return null;
+        return response.json();
+      })
+      .then((info) => {
+        if (info?.server === "custom") setCustomServerMode(info.mode ?? null);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   const streamItems = useMemo(
     () => (selectedSegment ? buildStreamItems(selectedSegment) : []),
@@ -135,6 +150,15 @@ function App() {
             <span className={`w-1.5 h-1.5 ${badge.dot} rounded-full`} />
             {badge.text}
           </span>
+          {customServerMode === "mpquic" && (
+            <span
+              className="flex items-center gap-1.5 bg-violet-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-full tracking-wide"
+              title="Custom Server dang bat Multipath QUIC; trinh duyet chi dung nhieu path khi client ho tro multipath"
+            >
+              <span className="w-1.5 h-1.5 bg-fuchsia-200 rounded-full animate-pulse" />
+              MPQUIC MODE
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap justify-end">

@@ -55,6 +55,13 @@ if [[ -z "${RUN_ID:-}" ]]; then
 fi
 export RUN_ID
 
+multipath_enabled=false
+if [[ "${mode}" == "mpquic" ]]; then
+  multipath_enabled=true
+fi
+printf '{"server":"custom","mode":"%s","multipath":%s}\n' \
+  "${mode}" "${multipath_enabled}" > /srv/www/custom-server-info.json
+
 if [[ "${mode}" == "h2" ]]; then
   exec node /opt/custom-server/server.mjs "$@"
 fi
