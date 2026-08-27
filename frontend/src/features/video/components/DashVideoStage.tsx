@@ -37,9 +37,10 @@ function getProtocolIconColor(protocolLabel: string) {
 }
 
 function formatReplayLabel(isReplayDone: boolean, currentReplay: number, replayCount: number) {
-  if (isReplayDone) return `✓ Done (${currentReplay}/${replayCount})`;
-  if (replayCount === 0) return `Loop ${currentReplay} (∞)`;
-  return `Loop ${currentReplay}/${replayCount}`;
+  const completedReplays = Math.max(0, currentReplay - 1);
+  if (isReplayDone) return `✓ Done (${completedReplays}/${replayCount})`;
+  if (replayCount === 0) return `Replay ${completedReplays} (∞)`;
+  return `Replay ${completedReplays}/${replayCount}`;
 }
 
 export function DashVideoStage({

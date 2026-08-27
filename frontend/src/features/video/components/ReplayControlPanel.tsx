@@ -24,6 +24,8 @@ function ReplayControlPanelComponent({
   onReplayChange,
   onReset,
 }: ReplayControlPanelProps) {
+  const completedReplays = Math.max(0, currentReplay - 1);
+
   return (
     <div className="mt-3 bg-white rounded-lg border border-slate-200 px-4 py-3">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -84,8 +86,8 @@ function ReplayControlPanelComponent({
             {isReplayDone
               ? "COMPLETE"
               : replayCount === 0
-                ? `LOOP ${currentReplay}`
-                : `LOOP ${currentReplay}/${replayCount}`
+                ? `REPLAY ${completedReplays} / ∞`
+                : `REPLAY ${completedReplays}/${replayCount}`
             }
           </div>
           <div className="text-[10px] text-slate-400 font-mono">

@@ -174,16 +174,20 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
   const activeScenarioIdRef = useRef<NetworkScenarioId>(activeScenarioId);
   const representationsSignatureRef = useRef("");
 
-  const [replayCount, setReplayCount] = useState(defaultReplayCount);
+  const [replayCount, setReplayCountState] = useState(defaultReplayCount);
   const [currentReplay, setCurrentReplay] = useState(1);
   const [isReplayDone, setIsReplayDone] = useState(false);
   const replayCountRef = useRef(replayCount);
   const currentReplayRef = useRef(1);
   const isReplayDoneRef = useRef(false);
 
-  useEffect(() => { replayCountRef.current = replayCount; }, [replayCount]);
   useEffect(() => { currentReplayRef.current = currentReplay; }, [currentReplay]);
   useEffect(() => { isReplayDoneRef.current = isReplayDone; }, [isReplayDone]);
+
+  const setReplayCount = useCallback((count: number) => {
+    replayCountRef.current = count;
+    setReplayCountState(count);
+  }, []);
 
   const scenarioById = useMemo(() => {
     const map = new Map<NetworkScenarioId, NetworkScenario>();
@@ -702,12 +706,8 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       if (!supportsVideoFrameCallback) metrics.markFirstFrame(performance.now(), "playing-fallback");
     };
 
-    let lastEndedHandledAt = 0;
     const onEnded = () => {
       if (!isCurrentSession()) return;
-      const now = Date.now();
-      if (now - lastEndedHandledAt < 500) return;
-      lastEndedHandledAt = now;
 
       const maxReplays = replayCountRef.current;
       const curReplay = currentReplayRef.current;
@@ -725,18 +725,18 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         currentReplayRef.current = nextReplay;
         setCurrentReplay(nextReplay);
         metrics.beginReplay();
-        addSessionLog("SYS", `Replay #${nextReplay} starting (unlimited mode)...`);
+        addSessionLog("SYS", `Replay #${nextReplay - 1} starting (unlimited mode)...`);
         if (playerRef.current) {
           metrics.markPlayRequested();
           playerRef.current.seek(0);
           playerRef.current.play();
         }
-      } else if (curReplay < maxReplays) {
+      } else if (curReplay <= maxReplays) {
         const nextReplay = curReplay + 1;
         currentReplayRef.current = nextReplay;
         setCurrentReplay(nextReplay);
         metrics.beginReplay();
-        addSessionLog("SYS", `Replay #${nextReplay}/${maxReplays} starting...`);
+        addSessionLog("SYS", `Replay #${nextReplay - 1}/${maxReplays} starting...`);
         if (playerRef.current) {
           metrics.markPlayRequested();
           playerRef.current.seek(0);
@@ -759,7 +759,6 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     video?.addEventListener("loadeddata", onLoadedData);
     video?.addEventListener("playing", onPlaying);
     video?.addEventListener("ended", onEnded);
-    player.on(MediaPlayer.events.PLAYBACK_ENDED, onEnded);
 
     return () => {
       if (playerSessionIdRef.current === sessionId) {
@@ -775,7 +774,6 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       video?.removeEventListener("loadeddata", onLoadedData);
       video?.removeEventListener("playing", onPlaying);
       video?.removeEventListener("ended", onEnded);
-      player.off(MediaPlayer.events.PLAYBACK_ENDED, onEnded);
       networkConnection?.removeEventListener?.("change", onNetworkChange);
       activeFragmentRequests.clear();
       countedFragmentRequests.clear();
