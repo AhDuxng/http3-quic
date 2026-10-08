@@ -76,6 +76,7 @@ services:
       - openlitespeed_certs:/usr/local/lsws/conf/cert
     environment:
       - DOMAIN=${DOMAIN:-localhost}
+      - LSQUIC_QLOG_CAPTURE=${LSQUIC_QLOG_CAPTURE:-false}
     depends_on:
       - frontend
     networks:

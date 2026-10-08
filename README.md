@@ -150,6 +150,28 @@ Caddy, OpenLiteSpeed và custom server đều public `80/tcp`, `443/tcp`, `443/u
 
 Custom server hỗ trợ `h2`, `quic`, `mpquic`, dùng chung certificate/domain và mount video. Chi tiết client multipath, scheduler và log thí nghiệm xem tại [custom_server/README.md](custom_server/README.md).
 
+### Thu qlog LSQUIC theo từng lượt thử
+
+OpenLiteSpeed ghi sự kiện qlog của LSQUIC vào debug log khi bật chế độ thu. Chế độ này mặc định tắt. Trên server, sau khi cập nhật source, chạy tại thư mục project:
+
+```bash
+LSQUIC_QLOG_CAPTURE=true COMPOSE_PROFILES=openlitespeed PROXY_SERVICE=openlitespeed \
+  docker compose -f docker-compose.prod.yml up -d --build --no-deps --force-recreate openlitespeed
+mkdir -p /data/qlog-lsquic-trial-001
+docker exec -i openlitespeed_server tail -n 0 -F /usr/local/lsws/logs/error.log | \
+  python3 -u scripts/capture-lsquic-qlog.py /data/qlog-lsquic-trial-001
+```
+
+Giữ lệnh `tail | python3` chạy trong suốt lượt thử. Tạo kết nối H3 mới sau khi bắt đầu thu. Nhấn `Ctrl+C` để dừng thu, rồi tắt debug của OpenLiteSpeed:
+
+```bash
+LSQUIC_QLOG_CAPTURE=false COMPOSE_PROFILES=openlitespeed PROXY_SERVICE=openlitespeed \
+  docker compose -f docker-compose.prod.yml up -d --no-deps --force-recreate openlitespeed
+find /data/qlog-lsquic-trial-001 -name '*.qlog' -type f -ls
+```
+
+File qlog được tách theo connection ID từ các event JSON do chính LSQUIC phát ra. Nếu thư mục rỗng sau một request H3 mới, kiểm tra `docker exec openlitespeed_server grep -im1 qlog /usr/local/lsws/logs/error.log` để xác nhận bản OpenLiteSpeed có đưa các event đó vào debug log. Chế độ này chưa được kiểm chứng trực tiếp trên image vì môi trường phát triển không có Docker daemon đang chạy. Không giả định qlog LSQUIC có `CWND_UPDATE` khi chưa kiểm tra event thực tế.
+
 ## Kiểm tra
 
 ```bash

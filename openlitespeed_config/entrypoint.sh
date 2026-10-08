@@ -8,6 +8,19 @@ readonly mounted_cert="/run/tls/server.crt"
 readonly mounted_key="/run/tls/server.key"
 domain="${DOMAIN:-localhost}"
 
+if [[ "${LSQUIC_QLOG_CAPTURE:-false}" == "true" ]]; then
+  config_file="/usr/local/lsws/conf/httpd_config.conf"
+  temp_config="$(mktemp)"
+  awk '
+    /^errorlog logs\/error.log \{/ { in_errorlog = 1 }
+    in_errorlog && /^[[:space:]]*logLevel[[:space:]]/ { print "  logLevel DEBUG"; next }
+    in_errorlog && /^}/ { print "  debugLevel 10"; in_errorlog = 0 }
+    { print }
+  ' "${config_file}" > "${temp_config}"
+  cat "${temp_config}" > "${config_file}"
+  rm -f "${temp_config}"
+fi
+
 mkdir -p "${cert_dir}"
 
 if [[ -s "${mounted_cert}" && -s "${mounted_key}" ]]; then
