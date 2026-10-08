@@ -3,6 +3,10 @@ import http from "node:http";
 import http2 from "node:http2";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const tcpInfo = require("./tcp-info.node");
 
 const mode = process.env.CUSTOM_MODE || "mpquic";
 const tlsPort = Number(process.env.CUSTOM_HTTPS_PORT || 443);
@@ -57,6 +61,9 @@ function instrumentResponse(req, res) {
 
   res.once("finish", () => {
     const requestPath = new URL(req.url || "/", "https://custom.invalid").pathname;
+    // HTTP/2 streams share one TCP connection, so this is a socket snapshot.
+    const fd = req.socket?._handle?.fd;
+    const tcp = Number.isInteger(fd) ? tcpInfo.sample(fd) : null;
     appendLog({
       timestamp_utc: new Date().toISOString(),
       protocol: req.httpVersionMajor === 2 ? "h2" : "http/1.1",
@@ -66,12 +73,15 @@ function instrumentResponse(req, res) {
       status: res.statusCode,
       download_time_ms: Number((performance.now() - startedAt).toFixed(3)),
       bytes,
-      rtt_ms: null,
+      rtt_ms: tcp?.rtt_ms ?? null,
       loss: null,
-      cwnd_bytes: null,
+      tcp_retransmissions: tcp?.retransmissions ?? null,
+      cwnd_bytes: tcp?.cwnd_bytes ?? null,
+      cwnd_segments: tcp?.cwnd_segments ?? null,
+      snd_mss_bytes: tcp?.snd_mss_bytes ?? null,
       path_id: null,
       scheduler: "kernel-tcp",
-      metric_scope: "server-response",
+      metric_scope: tcp ? "tcp-connection-at-response-finish" : "server-response",
     });
   });
 }

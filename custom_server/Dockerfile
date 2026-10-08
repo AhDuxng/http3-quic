@@ -30,15 +30,18 @@ RUN git apply /tmp/picoquic-dash.patch \
 FROM node:20-bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates openssl \
+    && apt-get install -y --no-install-recommends ca-certificates openssl gcc libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=picoquic-build /src/picoquic/build/picoquicdemo /usr/local/bin/picoquicdemo
 COPY --from=frontend-build /src/frontend/dist /srv/www
 COPY custom_server/server.mjs custom_server/normalize-qlog.mjs /opt/custom-server/
+COPY custom_server/tcp-info.c /opt/custom-server/
 COPY custom_server/server /usr/local/bin/server
 
-RUN chmod +x /usr/local/bin/server \
+RUN gcc -O2 -fPIC -shared -I/usr/local/include/node -o /opt/custom-server/tcp-info.node /opt/custom-server/tcp-info.c \
+    && apt-get purge -y --auto-remove gcc libc6-dev \
+    && chmod +x /usr/local/bin/server \
     && mkdir -p /srv/video /var/log/custom-server/qlog /var/lib/custom-server/cert
 
 EXPOSE 80/tcp 443/tcp 443/udp

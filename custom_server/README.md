@@ -93,10 +93,19 @@ H2 access log có schema:
 
 ```text
 protocol, run_id, segment, download_time_ms, bytes,
-rtt_ms, loss, cwnd_bytes, path_id, scheduler
+rtt_ms, loss, tcp_retransmissions, cwnd_bytes, cwnd_segments,
+snd_mss_bytes, path_id, scheduler
 ```
 
-`download_time_ms` ở đây là thời gian server xử lý và ghi response, không phải QoE download time tại client. H2 để `rtt_ms/loss/cwnd_bytes/path_id=null` vì HTTP/2 API không cung cấp TCP_INFO một cách portable.
+`download_time_ms` ở đây là thời gian server xử lý và ghi response, không phải QoE download time tại client. Trên Linux, H2 đọc `TCP_INFO` của socket tại thời điểm response hoàn tất: `cwnd_bytes = tcpi_snd_cwnd × tcpi_snd_mss`, `cwnd_segments = tcpi_snd_cwnd`, `rtt_ms = tcpi_rtt / 1000`. `tcp_retransmissions` là `tcpi_total_retrans` cộng dồn của kết nối TCP; `loss` vẫn là `null` vì TCP_INFO không cho biết loss riêng của segment. Các stream H2 trên cùng kết nối chia sẻ `cwnd`; `path_id` vẫn là `null`. Nếu socket đã đóng trước khi lấy mẫu, các trường TCP để `null`.
+
+Sau khi build và deploy lại custom server, kiểm tra H2:
+
+```bash
+CUSTOM_MODE=h2 ./scripts/switch-proxy.sh custom --prod
+curl --http2 -I https://video.duxng.io.vn/video/BigBuckBunny/4sec/BigBuckBunny_4s_simple_2014_05_09.mpd
+tail -n 1 logs/custom-server/access.jsonl | jq '{protocol, cwnd_bytes, cwnd_segments, snd_mss_bytes, rtt_ms, tcp_retransmissions}'
+```
 
 H3 access log ghi một row cho mỗi path đang hoạt động khi segment hoàn tất, gồm segment bytes/thời gian response và snapshot RTT/loss/cwnd/path. `loss` và `path_bytes_sent_cumulative` là bộ đếm cộng dồn của path, không phải loss riêng của segment.
 
