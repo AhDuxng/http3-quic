@@ -152,14 +152,15 @@ Custom server hỗ trợ `h2`, `quic`, `mpquic`, dùng chung certificate/domain 
 
 ### Thu qlog LSQUIC theo từng lượt thử
 
-OpenLiteSpeed ghi sự kiện qlog của LSQUIC vào debug log khi bật chế độ thu. Chế độ này mặc định tắt. Trên server, sau khi cập nhật source, chạy tại thư mục project:
+Module qlog có sẵn của LSQUIC chỉ phát `PACKET_RX` và vài event handshake, không có packet gửi, cwnd hay loss. Vì vậy script dựng qlog từ debug log của LSQUIC: module `event` (TX/RX packet, size, frame, ACK range), `sendctl` (RTT, cwnd, bytes in flight, packet lost) và `qlog` (thời điểm nhận chính xác `pi_received`). Chế độ thu bật debug cho OpenLiteSpeed và mặc định tắt. Trên server, sau khi cập nhật source, chạy tại thư mục project:
 
 ```bash
+sudo install -d -o "$(id -u)" -g "$(id -g)" -m 0755 \
+  /data/experiment-logs /data/experiment-logs/qlog-lsquic-trial-001
 LSQUIC_QLOG_CAPTURE=true COMPOSE_PROFILES=openlitespeed PROXY_SERVICE=openlitespeed \
   docker compose -f docker-compose.prod.yml up -d --build --no-deps --force-recreate openlitespeed
-mkdir -p /data/qlog-lsquic-trial-001
 docker exec -i openlitespeed_server tail -n 0 -F /usr/local/lsws/logs/error.log | \
-  python3 -u scripts/capture-lsquic-qlog.py /data/qlog-lsquic-trial-001
+  python3 -u scripts/capture-lsquic-qlog.py /data/experiment-logs/qlog-lsquic-trial-001
 ```
 
 Giữ lệnh `tail | python3` chạy trong suốt lượt thử. Tạo kết nối H3 mới sau khi bắt đầu thu. Nhấn `Ctrl+C` để dừng thu, rồi tắt debug của OpenLiteSpeed:
@@ -167,10 +168,25 @@ Giữ lệnh `tail | python3` chạy trong suốt lượt thử. Tạo kết n�
 ```bash
 LSQUIC_QLOG_CAPTURE=false COMPOSE_PROFILES=openlitespeed PROXY_SERVICE=openlitespeed \
   docker compose -f docker-compose.prod.yml up -d --no-deps --force-recreate openlitespeed
-find /data/qlog-lsquic-trial-001 -name '*.qlog' -type f -ls
+find /data/experiment-logs/qlog-lsquic-trial-001 -name '*.qlog' -type f -ls
 ```
 
-File qlog được tách theo connection ID từ các event JSON do chính LSQUIC phát ra. Nếu thư mục rỗng sau một request H3 mới, kiểm tra `docker exec openlitespeed_server grep -im1 qlog /usr/local/lsws/logs/error.log` để xác nhận bản OpenLiteSpeed có đưa các event đó vào debug log. Chế độ này chưa được kiểm chứng trực tiếp trên image vì môi trường phát triển không có Docker daemon đang chạy. Không giả định qlog LSQUIC có `CWND_UPDATE` khi chưa kiểm tra event thực tế.
+Script lưu các dòng log QUIC gốc vào `lsquic-debug.log` trong thư mục thu, rồi khi dừng sẽ ghi một file `<cid>_server.qlog` cho mỗi connection. Định dạng giống qlog của picoquic (`draft-00`, thời gian tương đối tính bằng µs, `reference_time` là Unix UTC µs), nên đọc được bằng qvis và `custom_server/normalize-qlog.mjs`. Có thể dựng lại qlog từ log đã lưu:
+
+```bash
+python3 scripts/capture-lsquic-qlog.py --from-log \
+  /data/experiment-logs/qlog-lsquic-trial-001/lsquic-debug.log /data/experiment-logs/qlog-lsquic-trial-001
+```
+
+Độ chính xác và giới hạn:
+
+- Thời điểm gửi lấy từ timestamp của dòng log OpenLiteSpeed, ghi ngay sau khi gói được gửi xuống socket. Thời điểm nhận lấy từ `pi_received` (`CLOCK_MONOTONIC`), quy về đồng hồ của log bằng độ lệch nhỏ nhất giữa hai nguồn.
+- Timestamp log là giờ địa phương của container. Nếu container không chạy UTC, truyền thêm `--utc-offset +07:00`.
+- Mỗi packet chỉ có danh sách loại frame, không có số lượng hay thứ tự frame, vì LSQUIC chỉ ghi như vậy. ACK nhận được có đủ range.
+- `cwnd` và `bytes_in_flight` lấy từ lần kiểm tra quyền gửi gần nhất của `sendctl`, không phụ thuộc thuật toán congestion control (Cubic, BBR hay adaptive).
+- Ghi debug cho từng packet tốn CPU và I/O, nên lượt thu qlog có thể làm thay đổi throughput. Chạy lượt thu qlog riêng, không gộp với lượt đo hiệu năng.
+- Script in ra số event mỗi loại và cảnh báo khi thiếu module `event`/`sendctl` ở mức debug hoặc khi timestamp log không đủ 6 chữ số thập phân. Lần đầu chạy, kiểm tra các cảnh báo này trước khi dùng dữ liệu.
+- Trình duyệt có thể dùng lại connection H3 đã mở trước khi thu. Khi đó qlog thiếu handshake và packet đầu tiên có số lớn. Đóng hẳn trình duyệt hoặc dùng profile mới trước mỗi lượt.
 
 ## Kiểm tra
 
