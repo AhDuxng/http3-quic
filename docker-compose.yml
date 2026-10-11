@@ -48,9 +48,11 @@ services:
       - ./video:/srv/video:ro
       - caddy_data:/data
       - caddy_runtime_config:/config
+      - ${CADDY_QLOG_HOST_DIR:-./logs/caddy-qlog}:/qlog
     environment:
       - DOMAIN=${DOMAIN:-localhost}
       - PORT=${PORT:-3000}
+      - QLOGDIR=${CADDY_QLOGDIR:-}
     depends_on:
       - frontend
     networks:

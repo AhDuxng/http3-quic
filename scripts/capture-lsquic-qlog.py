@@ -147,6 +147,9 @@ def convert(log_path, output, utc_offset_us):
                 elif message == "handshake completed":
                     conn.add(time_us, 0, "connectivity", "connection_state_updated", {"new": "handshake_completed"})
 
+            elif module == "mini-conn" and message.startswith("created mini connection object"):
+                conn.add(time_us, 0, "connectivity", "connection_state_updated", {"new": "created"})
+
             elif module == "sendctl":
                 if found := RTT.match(message):
                     _, rtt, delta, srtt = map(int, found.groups())
@@ -172,7 +175,7 @@ def convert(log_path, output, utc_offset_us):
                     conn.add(time_us, 0, "recovery", "congestion_controller_selected",
                              {"smoothed_rtt": int(found.group(1)), "controller": found.group(2).lower()})
 
-            elif module == "qlog" and '"PACKET_RX"' in message:
+            elif module == "qlog" and '"TRANSPORT","PACKET_RX"' in message:
                 try:
                     event, _ = json.JSONDecoder().raw_decode(message[message.index("["):])
                     header = event[4]["header"]

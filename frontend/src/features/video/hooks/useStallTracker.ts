@@ -32,6 +32,23 @@ export function useStallTracker({ updateStats }: UseStallTrackerArgs) {
     return duration;
   }, [updateStats]);
 
+  // Dong stall dang mo tai moc cutoffMs; phan sau moc khong tinh, stall bat dau sau moc thi bo ca luot dem.
+  const closeStallAt = useCallback((cutoffMs: number) => {
+    if (stallStartRef.current === null) return;
+    const stallStart = stallStartRef.current;
+    stallStartRef.current = null;
+    if (stallStart >= cutoffMs) {
+      stallCountRef.current = Math.max(0, stallCountRef.current - 1);
+    } else {
+      stallAccumulatedMsRef.current += cutoffMs - stallStart;
+    }
+    updateStats((prev) => ({
+      ...prev,
+      stallCount: stallCountRef.current,
+      stallDurationMs: stallAccumulatedMsRef.current,
+    }));
+  }, [updateStats]);
+
   const getSnapshot = useCallback((): StallTrackerRefs => {
     const activeDuration = stallStartRef.current === null
       ? 0
@@ -48,6 +65,6 @@ export function useStallTracker({ updateStats }: UseStallTrackerArgs) {
     stallStartRef.current = null;
   }, []);
 
-  return useMemo(() => ({ onBufferEmpty, onBufferLoaded, getSnapshot, reset }),
-    [onBufferEmpty, onBufferLoaded, getSnapshot, reset]);
+  return useMemo(() => ({ onBufferEmpty, onBufferLoaded, closeStallAt, getSnapshot, reset }),
+    [onBufferEmpty, onBufferLoaded, closeStallAt, getSnapshot, reset]);
 }

@@ -19,6 +19,10 @@ if [[ "${LSQUIC_QLOG_CAPTURE:-false}" == "true" ]]; then
   ' "${config_file}" > "${temp_config}"
   cat "${temp_config}" > "${config_file}"
   rm -f "${temp_config}"
+  # Debug log fills the container disk quickly; capture-lsquic-qlog.py keeps its own copy.
+  (while sleep 30; do
+    find /usr/local/lsws/logs -name 'error.log.*' -mmin +1 -delete
+  done) &
 fi
 
 mkdir -p "${cert_dir}"

@@ -185,6 +185,8 @@ python3 scripts/capture-lsquic-qlog.py --from-log \
 - Mỗi packet chỉ có danh sách loại frame, không có số lượng hay thứ tự frame, vì LSQUIC chỉ ghi như vậy. ACK nhận được có đủ range.
 - `cwnd` và `bytes_in_flight` lấy từ lần kiểm tra quyền gửi gần nhất của `sendctl`, không phụ thuộc thuật toán congestion control (Cubic, BBR hay adaptive).
 - Ghi debug cho từng packet tốn CPU và I/O, nên lượt thu qlog có thể làm thay đổi throughput. Chạy lượt thu qlog riêng, không gộp với lượt đo hiệu năng.
+- Log debug rất lớn: lượt thử 002 tạo khoảng 1.8 GB `lsquic-debug.log` trong 45 phút phát video. Ở chế độ thu, container tự xóa các file `error.log.*` đã xoay vòng sau khoảng 1 phút để không làm đầy ổ hệ thống. Kiểm tra `df -h / /data` trước mỗi lượt và tắt chế độ thu ngay khi xong.
+- Không dựng qlog từ log lớn trên server ít RAM. Tải `lsquic-debug.log` về máy khác rồi dùng `--from-log`.
 - Script in ra số event mỗi loại và cảnh báo khi thiếu module `event`/`sendctl` ở mức debug hoặc khi timestamp log không đủ 6 chữ số thập phân. Lần đầu chạy, kiểm tra các cảnh báo này trước khi dùng dữ liệu.
 - Trình duyệt có thể dùng lại connection H3 đã mở trước khi thu. Khi đó qlog thiếu handshake và packet đầu tiên có số lớn. Đóng hẳn trình duyệt hoặc dùng profile mới trước mỗi lượt.
 

@@ -27,6 +27,11 @@ const dashRetryPolicy = {
   },
 } as const;
 
+const replayRestartRetryMs = 1_500;
+const replayRestartMaxRetries = 3;
+// Lon hon tong thoi gian retry media segment (6 x 1.5s) de khong cat ngang lan retry cuoi.
+const replayStuckAtEndTicks = 12;
+
 const dashFragmentErrorCodes = new Set([17, 18, 27]);
 
 function getRequestUrl(request: any) {
@@ -706,13 +711,55 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       if (!supportsVideoFrameCallback) metrics.markFirstFrame(performance.now(), "playing-fallback");
     };
 
-    const onEnded = () => {
+    // Trang thai vong replay: chong xu ly trung va theo doi lan khoi dong lai.
+    const replayEndTailSec = Math.max(0.5, (logSegmentSeconds ?? 0) + 0.5);
+    let isEndHandled = false;
+    let restartRequestedAt: number | null = null;
+    let restartRetryCount = 0;
+    let lastWatchdogTime = NaN;
+    let stagnantWatchdogTicks = 0;
+    let lastProgressAt = performance.now();
+    let lastProgressTime = NaN;
+    const restartTimeoutIds = new Set<number>();
+
+    // Doi dash.js xu ly xong ended (no tu goi pause()) roi moi seek/play.
+    const restartPlayback = () => {
+      restartRequestedAt = performance.now();
+      restartRetryCount = 0;
+      const timeoutId = window.setTimeout(() => {
+        restartTimeoutIds.delete(timeoutId);
+        if (!isCurrentSession() || isReplayDoneRef.current) return;
+        const currentPlayer = playerRef.current;
+        if (!currentPlayer) return;
+        metrics.markPlayRequested();
+        currentPlayer.seek(0);
+        currentPlayer.play();
+      }, 0);
+      restartTimeoutIds.add(timeoutId);
+    };
+
+    // Ghi moc lan cuoi playhead con tien, de cat phan stall khi ket o doan cuoi.
+    const onTimeUpdate = () => {
+      if (!video || video.seeking || video.currentTime === lastProgressTime) return;
+      lastProgressTime = video.currentTime;
+      lastProgressAt = performance.now();
+    };
+
+    // stuckSinceMs: chi co khi watchdog ep ket thuc; thoi gian ket sau moc nay khong tinh vao stall.
+    const onEnded = (stuckSinceMs?: number) => {
       if (!isCurrentSession()) return;
+      if (isReplayDoneRef.current || isEndHandled) return;
+      isEndHandled = true;
+      stagnantWatchdogTicks = 0;
 
       const maxReplays = replayCountRef.current;
       const curReplay = currentReplayRef.current;
       const replayPlaybackTime = video?.currentTime ?? statsRef.current.currentTime;
-      stall.onBufferLoaded();
+      if (stuckSinceMs === undefined) {
+        stall.onBufferLoaded();
+      } else {
+        stall.closeStallAt(stuckSinceMs);
+      }
       const stallDurationMs = stall.getSnapshot().stallAccumulatedMs;
       if (video && playerRef.current) {
         metrics.pollStats(video, playerRef.current, stallDurationMs);
@@ -726,22 +773,14 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         setCurrentReplay(nextReplay);
         metrics.beginReplay();
         addSessionLog("SYS", `Replay #${nextReplay - 1} starting (unlimited mode)...`);
-        if (playerRef.current) {
-          metrics.markPlayRequested();
-          playerRef.current.seek(0);
-          playerRef.current.play();
-        }
+        restartPlayback();
       } else if (curReplay <= maxReplays) {
         const nextReplay = curReplay + 1;
         currentReplayRef.current = nextReplay;
         setCurrentReplay(nextReplay);
         metrics.beginReplay();
         addSessionLog("SYS", `Replay #${nextReplay - 1}/${maxReplays} starting...`);
-        if (playerRef.current) {
-          metrics.markPlayRequested();
-          playerRef.current.seek(0);
-          playerRef.current.play();
-        }
+        restartPlayback();
       } else {
         addSessionLog("SYS", `All ${maxReplays} replay(s) completed. Stopping video and logging.`);
         isReplayDoneRef.current = true;
@@ -753,18 +792,67 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       }
     };
 
+    // PLAYBACK_ENDED cua dash.js ban sau khi dash.js da pause(), va ca khi native ended khong xay ra.
+    const onDashPlaybackEnded = (event: any) => {
+      if (event?.isLast === false) return;
+      onEnded();
+    };
+
+    const checkReplayProgress = () => {
+      if (!video || !isCurrentSession() || isReplayDoneRef.current) return;
+      const duration = video.duration;
+      if (!Number.isFinite(duration) || duration <= 0) return;
+      const currentTime = video.currentTime;
+      const isNearEnd = duration - currentTime <= replayEndTailSec;
+
+      // Vong moi da chay that su: mo khoa cho lan ket thuc tiep theo (ke ca sau RESET).
+      if (isEndHandled && !video.paused && !video.seeking && currentTime > 0.5 && !isNearEnd) {
+        isEndHandled = false;
+        restartRequestedAt = null;
+      }
+
+      // Khoi dong lai bi pause() cua dash.js chen ngang: thu play() lai.
+      if (restartRequestedAt !== null && video.paused && restartRetryCount < replayRestartMaxRetries
+        && performance.now() - restartRequestedAt >= replayRestartRetryMs) {
+        restartRetryCount += 1;
+        restartRequestedAt = performance.now();
+        console.warn(`[replay] playback did not resume after restart, retry play() #${restartRetryCount}`);
+        metrics.markPlayRequested();
+        playerRef.current?.play();
+      }
+
+      // Ket o doan cuoi ma khong co ended (segment cuoi loi, duration MPD lech).
+      const isStagnant = !video.seeking && currentTime === lastWatchdogTime;
+      lastWatchdogTime = currentTime;
+      if (!isEndHandled && isNearEnd && isStagnant && (!video.paused || video.ended)) {
+        stagnantWatchdogTicks += 1;
+        if (stagnantWatchdogTicks >= replayStuckAtEndTicks) {
+          console.warn(`[replay] playback stuck ${stagnantWatchdogTicks}s near end without ended event, forcing replay`);
+          onEnded(lastProgressAt);
+        }
+      } else {
+        stagnantWatchdogTicks = 0;
+      }
+    };
+    const replayWatchdogId = window.setInterval(checkReplayProgress, statsPollIntervalMs);
+
+    player.on(MediaPlayer.events.PLAYBACK_ENDED, onDashPlaybackEnded);
     video?.addEventListener("play", onPlay);
     video?.addEventListener("pause", onPause);
     video?.addEventListener("waiting", onWaiting);
     video?.addEventListener("loadeddata", onLoadedData);
     video?.addEventListener("playing", onPlaying);
-    video?.addEventListener("ended", onEnded);
+    video?.addEventListener("timeupdate", onTimeUpdate);
 
     return () => {
       if (playerSessionIdRef.current === sessionId) {
         playerSessionIdRef.current += 1;
       }
       window.clearInterval(pollId);
+      window.clearInterval(replayWatchdogId);
+      restartTimeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      restartTimeoutIds.clear();
+      player.off(MediaPlayer.events.PLAYBACK_ENDED, onDashPlaybackEnded);
       if (video && firstFrameCallbackId !== null && typeof video.cancelVideoFrameCallback === "function") {
         video.cancelVideoFrameCallback(firstFrameCallbackId);
       }
@@ -773,7 +861,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       video?.removeEventListener("waiting", onWaiting);
       video?.removeEventListener("loadeddata", onLoadedData);
       video?.removeEventListener("playing", onPlaying);
-      video?.removeEventListener("ended", onEnded);
+      video?.removeEventListener("timeupdate", onTimeUpdate);
       networkConnection?.removeEventListener?.("change", onNetworkChange);
       activeFragmentRequests.clear();
       countedFragmentRequests.clear();
@@ -798,6 +886,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     streamTitle,
     resetMeasurementState,
     logSegmentLabel,
+    logSegmentSeconds,
     scenarioById,
   ]);
 
