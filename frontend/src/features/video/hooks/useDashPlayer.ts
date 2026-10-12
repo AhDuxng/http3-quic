@@ -13,7 +13,7 @@ import { detectProtocol, formatNextHopProtocol, getNetworkType } from "../utils/
 import { getRepBitrateKbps, getResolutionLabel, useStreamMetrics } from "./useStreamMetrics";
 import { useStallTracker } from "./useStallTracker";
 
-const defaultReplayCount = 1;
+const defaultReplayCount = 10;
 const dashRetryPolicy = {
   intervalsMs: {
     manifest: 1_000,
