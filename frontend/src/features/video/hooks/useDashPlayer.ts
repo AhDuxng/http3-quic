@@ -397,7 +397,13 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         abr: { autoSwitchBitrate: { video: true }, initialBitrate: { video: 500 } },
       },
     });
-    player.initialize(videoRef.current ?? undefined, manifestUrl, false);
+    const mediaElement = videoRef.current;
+    if (mediaElement) {
+      // iOS: phat inline thay vi bat buoc fullscreen; ManagedMediaSource can tat AirPlay moi mo duoc nguon.
+      mediaElement.playsInline = true;
+      mediaElement.disableRemotePlayback = true;
+    }
+    player.initialize(mediaElement ?? undefined, manifestUrl, false);
     addSessionLog("SYS", `${streamTitle}: player initialized. Loading manifest...`);
     addSessionLog(
       "SYS",
@@ -686,8 +692,37 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
         metrics.markFirstFrame(renderedAtMs, "first-rendered-frame");
       });
     };
+    // Giu man hinh sang suot phien do: man hinh tat/tab an thi Android dung video, replay bi ket.
+    let wakeLock: { release: () => Promise<void>; addEventListener?: (type: string, cb: () => void) => void } | null = null;
+    let isWakeLockPending = false;
+    const requestWakeLock = async () => {
+      const wakeLockApi = (navigator as any).wakeLock;
+      if (!wakeLockApi || wakeLock || isWakeLockPending || document.visibilityState !== "visible") return;
+      isWakeLockPending = true;
+      try {
+        const sentinel = await wakeLockApi.request("screen");
+        if (!isCurrentSession() || isReplayDoneRef.current) {
+          sentinel.release().catch(() => undefined);
+          return;
+        }
+        wakeLock = sentinel;
+        sentinel.addEventListener?.("release", () => {
+          if (wakeLock === sentinel) wakeLock = null;
+        });
+      } catch {
+        wakeLock = null;
+      } finally {
+        isWakeLockPending = false;
+      }
+    };
+    const releaseWakeLock = () => {
+      wakeLock?.release().catch(() => undefined);
+      wakeLock = null;
+    };
+
     const onPlay = () => {
       if (!isCurrentSession()) return;
+      void requestWakeLock();
       metrics.markPlayRequested();
       scheduleFirstRenderedFrame();
       setIsPlaying(true);
@@ -784,6 +819,7 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       } else {
         addSessionLog("SYS", `All ${maxReplays} replay(s) completed. Stopping video and logging.`);
         isReplayDoneRef.current = true;
+        releaseWakeLock();
         setIsReplayDone(true);
         setIsPlaying(false);
         if (playerRef.current) {
@@ -812,7 +848,8 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       }
 
       // Khoi dong lai bi pause() cua dash.js chen ngang: thu play() lai.
-      if (restartRequestedAt !== null && video.paused && restartRetryCount < replayRestartMaxRetries
+      if (restartRequestedAt !== null && video.paused && document.visibilityState === "visible"
+        && restartRetryCount < replayRestartMaxRetries
         && performance.now() - restartRequestedAt >= replayRestartRetryMs) {
         restartRetryCount += 1;
         restartRequestedAt = performance.now();
@@ -836,7 +873,31 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
     };
     const replayWatchdogId = window.setInterval(checkReplayProgress, statsPollIntervalMs);
 
+    // Trinh duyet chan play() khong do nguoi dung bam (autoplay policy): thu lai o che do muted.
+    const onPlaybackNotAllowed = () => {
+      if (!isCurrentSession() || isReplayDoneRef.current || !video || video.muted) return;
+      console.warn("[replay] play() blocked by autoplay policy, retrying muted");
+      video.muted = true;
+      metrics.markPlayRequested();
+      playerRef.current?.play();
+    };
+
+    // Quay lai tab/mo khoa man hinh: lay lai wake lock va tiep tuc vong replay dang cho.
+    const onVisibilityChange = () => {
+      if (!isCurrentSession() || isReplayDoneRef.current || document.visibilityState !== "visible") return;
+      if (restartRequestedAt !== null && video?.paused) {
+        console.warn("[replay] page visible again, resuming pending replay");
+        restartRetryCount = 0;
+        restartRequestedAt = performance.now();
+        metrics.markPlayRequested();
+        playerRef.current?.play();
+      }
+      if (restartRequestedAt !== null || (video && !video.paused)) void requestWakeLock();
+    };
+
     player.on(MediaPlayer.events.PLAYBACK_ENDED, onDashPlaybackEnded);
+    player.on(MediaPlayer.events.PLAYBACK_NOT_ALLOWED, onPlaybackNotAllowed);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     video?.addEventListener("play", onPlay);
     video?.addEventListener("pause", onPause);
     video?.addEventListener("waiting", onWaiting);
@@ -853,6 +914,9 @@ export function useDashPlayer(args: UseDashPlayerArgs): UseDashPlayerResult {
       restartTimeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
       restartTimeoutIds.clear();
       player.off(MediaPlayer.events.PLAYBACK_ENDED, onDashPlaybackEnded);
+      player.off(MediaPlayer.events.PLAYBACK_NOT_ALLOWED, onPlaybackNotAllowed);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      releaseWakeLock();
       if (video && firstFrameCallbackId !== null && typeof video.cancelVideoFrameCallback === "function") {
         video.cancelVideoFrameCallback(firstFrameCallbackId);
       }
