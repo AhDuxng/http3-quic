@@ -71,7 +71,6 @@ export function DashVideoStage({
         ref={videoRef}
         className="w-full h-auto aspect-video cursor-pointer object-contain"
         controls
-        playsInline
         controlsList="nodownload"
         onClick={togglePlayPause}
       />
