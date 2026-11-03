@@ -37,6 +37,8 @@ services:
       dockerfile: Dockerfile
     container_name: caddy_server
     restart: unless-stopped
+    sysctls:
+      - net.ipv4.tcp_slow_start_after_idle=${TCP_SLOW_START_AFTER_IDLE:-1}
     cap_add:
       - NET_ADMIN
     ports:
@@ -65,6 +67,8 @@ services:
       dockerfile: Dockerfile
     container_name: openlitespeed_server
     restart: unless-stopped
+    sysctls:
+      - net.ipv4.tcp_slow_start_after_idle=${TCP_SLOW_START_AFTER_IDLE:-1}
     cap_add:
       - NET_ADMIN
     shm_size: 256mb
