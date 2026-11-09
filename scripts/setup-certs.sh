@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# Creates the TLS certificate used by OpenLiteSpeed in
+# openlitespeed_config/certs/. Uses mkcert (locally trusted, which browsers need
+# before they use HTTP/3) when it is installed, otherwise falls back to a self-
+# signed OpenSSL certificate.
+#
+# Usage: scripts/setup-certs.sh [domain]
+
 set -euo pipefail
 
 domain="${1:-${DOMAIN:-}}"

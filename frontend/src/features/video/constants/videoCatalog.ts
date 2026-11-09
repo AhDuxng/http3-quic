@@ -1,3 +1,9 @@
+/**
+ * Video catalog (Big Buck Bunny, Of Forest and Men, Tears of Steel from the
+ * ITEC DASH dataset), view modes, segment durations and the builder of
+ * manifest URLs under /video/<Name>/<N>sec/.
+ */
+
 import type { ComponentType } from "react";
 import { FaFilm, FaLeaf, FaRocket } from "react-icons/fa";
 

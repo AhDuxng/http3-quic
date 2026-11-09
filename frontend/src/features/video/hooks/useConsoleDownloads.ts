@@ -1,3 +1,8 @@
+/**
+ * Hook that filters the console log and builds the downloadable CSV bundle and
+ * text report of a player session.
+ */
+
 import { useCallback, useMemo, useState } from "react";
 import type { Representation } from "dashjs";
 import type { NetworkScenario } from "../../../type/video";
@@ -79,7 +84,7 @@ export function useConsoleDownloads({
     for (const [kind, content] of exports) {
       downloadFile(
         content,
-        `adtube-${kind}-${filenameSlug}-${timestamp}.csv`,
+        `ngis-stream-${kind}-${filenameSlug}-${timestamp}.csv`,
         "text/csv;charset=utf-8",
       );
     }
@@ -96,7 +101,7 @@ export function useConsoleDownloads({
       logs: filteredLogs,
       streamTitle,
     });
-    downloadFile(text, `adtube-report-${filenameSlug}-${createTimestamp()}.txt`, "text/plain");
+    downloadFile(text, `ngis-stream-report-${filenameSlug}-${createTimestamp()}.txt`, "text/plain");
   }, [
     activeScenario.label,
     activeScenario.speedLabel,

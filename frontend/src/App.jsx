@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+/**
+ * Root component of the NGIS Stream web client.
+ *
+ * Drives the session setup flow (view mode and DASH segment duration), renders
+ * one, two or three DASH players side by side, exposes global play/pause/reset
+ * controls and shows the HTTP protocol negotiated for the media requests.
+ */
+import { useCallback, useMemo, useRef, useState } from "react";
 import { FaArrowLeft, FaCheck, FaPause, FaPlay, FaRedo, FaVideo } from "react-icons/fa";
 import VideoPlayer from "./features/video/components/VideoPlayer";
 import { VideoSetupPanel } from "./features/video/components/VideoSetupPanel";
@@ -33,21 +40,6 @@ function App() {
   const [selectedSingleId, setSelectedSingleId] = useState(videoCatalog[0].id);
   const [selectedDualIds, setSelectedDualIds] = useState(videoCatalog.slice(0, 2).map((video) => video.id));
   const [detectedProtocol, setDetectedProtocol] = useState("Detecting...");
-  const [customServerMode, setCustomServerMode] = useState(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/custom-server-info.json", { cache: "no-store", signal: controller.signal })
-      .then((response) => {
-        if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) return null;
-        return response.json();
-      })
-      .then((info) => {
-        if (info?.server === "custom") setCustomServerMode(info.mode ?? null);
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, []);
 
   const streamItems = useMemo(
     () => (selectedSegment ? buildStreamItems(selectedSegment) : []),
@@ -144,21 +136,12 @@ function App() {
     <div className="min-h-screen flex flex-col bg-slate-50">
       <header className="sticky top-0 z-50 shrink-0 min-h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-6 gap-3 flex-wrap py-2">
         <div className="flex items-center gap-3">
-          <span className="font-extrabold text-slate-900 text-lg tracking-tight">ADTUBE</span>
+          <span className="font-extrabold text-slate-900 text-lg tracking-tight">NGIS STREAM</span>
           <span className="text-slate-400 text-xs font-medium tracking-widest uppercase">Analyzer</span>
           <span className={`flex items-center gap-1.5 ${badge.bg} text-white text-[10px] font-bold px-2.5 py-1 rounded-full tracking-wide transition-colors duration-500`}>
             <span className={`w-1.5 h-1.5 ${badge.dot} rounded-full`} />
             {badge.text}
           </span>
-          {customServerMode === "mpquic" && (
-            <span
-              className="flex items-center gap-1.5 bg-violet-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-full tracking-wide"
-              title="Custom Server dang bat Multipath QUIC; trinh duyet chi dung nhieu path khi client ho tro multipath"
-            >
-              <span className="w-1.5 h-1.5 bg-fuchsia-200 rounded-full animate-pulse" />
-              MPQUIC MODE
-            </span>
-          )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -197,7 +180,7 @@ function App() {
                 className="inline-flex items-center gap-1.5 text-sm border border-slate-300 text-slate-600 px-3 py-1.5 rounded hover:bg-slate-50 transition-colors"
               >
                 <FaArrowLeft className="w-3 h-3" />
-                Quay lại
+                Back
               </button>
             </>
           )}
@@ -208,7 +191,7 @@ function App() {
               className="inline-flex items-center gap-1.5 text-sm border border-slate-300 text-slate-600 px-3 py-1.5 rounded hover:bg-slate-50 transition-colors"
             >
               <FaArrowLeft className="w-3 h-3" />
-              Chọn lại
+              Choose again
             </button>
           )}
         </div>
@@ -267,8 +250,8 @@ function App() {
           <div className="flex flex-col gap-4">
             <div className="bg-white rounded-lg border border-slate-200 px-4 py-3 flex items-center justify-between flex-wrap gap-3">
               <div>
-                <div className="text-[11px] font-bold tracking-widest text-slate-500">CHỌN 2 VIDEO</div>
-                <div className="text-sm text-slate-500">{selectedDualVideos.length}/2 video đang được chọn</div>
+                <div className="text-[11px] font-bold tracking-widest text-slate-500">SELECT 2 VIDEOS</div>
+                <div className="text-sm text-slate-500">{selectedDualVideos.length}/2 videos selected</div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {streamItems.map((video) => {
@@ -310,7 +293,7 @@ function App() {
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-10 text-center text-slate-500">
-                Hãy chọn đủ 2 video để bắt đầu so sánh song song.
+                Select 2 videos to start a side-by-side comparison.
               </div>
             )}
           </div>

@@ -1,4 +1,6 @@
-# Logs
+# Frontend-local ignores: package manager logs, dependencies, Vite build output
+# and editor files.
+
 logs
 *.log
 npm-debug.log*
@@ -12,7 +14,6 @@ dist
 dist-ssr
 *.local
 
-# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea

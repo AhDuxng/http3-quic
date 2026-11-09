@@ -1,3 +1,7 @@
+/**
+ * Icon button with a text label, used in the video overlay menus.
+ */
+
 import type { ReactNode } from "react";
 
 interface IconMenuButtonProps {

@@ -1,3 +1,8 @@
+/**
+ * Tracks playback stalls (from buffer empty to buffer loaded) to count
+ * rebuffering events and accumulate the stall time.
+ */
+
 import { useCallback, useMemo, useRef } from "react";
 import type { StreamStats } from "../type/dashPlayer";
 

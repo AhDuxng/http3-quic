@@ -1,3 +1,8 @@
+/**
+ * Form state of the custom network scenario (bandwidth, delay, loss) and its
+ * submission.
+ */
+
 import { useCallback, useState } from "react";
 import type { NetworkScenario } from "../../../type/video";
 

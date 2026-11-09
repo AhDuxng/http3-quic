@@ -1,3 +1,9 @@
+/**
+ * Per-player console panel: filterable event log (INFO, WARN, ERRO, NET, SYS)
+ * and export buttons for the CSV bundle (events, per-segment QoS, time-sampled
+ * QoE) and the plain-text measurement report.
+ */
+
 import { memo } from "react";
 import type { Representation } from "dashjs";
 import { FaTerminal, FaDownload, FaSearch } from "react-icons/fa";

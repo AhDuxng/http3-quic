@@ -1,3 +1,9 @@
+/**
+ * Predefined network emulation profiles (real network, fiber, 4G, QUIC
+ * migration test, 3G, 2G) with the rate, delay and loss values passed to
+ * tc/netem, and the icon of each profile.
+ */
+
 import type { ComponentType } from "react";
 import { FaWifi, FaMobileAlt, FaBroadcastTower, FaCog } from "react-icons/fa";
 import type { NetworkScenario } from "../../../type/video";

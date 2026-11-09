@@ -1,3 +1,7 @@
+/**
+ * Black, rounded container that holds the video element and its overlays.
+ */
+
 import type { ReactNode } from "react";
 
 interface VideoFrameProps {

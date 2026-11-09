@@ -3,8 +3,8 @@
 
 The kernel tracepoint tcp:tcp_probe fires on every ACK the server receives and
 reports snd_cwnd, ssthresh, srtt and snd_nxt/snd_una. tcp:tcp_retransmit_skb
-marks retransmissions. Both run on the host kernel, so this works for Caddy,
-OpenLiteSpeed and the custom server without changing the containers. MSS is
+marks retransmissions. Both run on the host kernel, so this works for Caddy
+and OpenLiteSpeed without changing the containers. MSS is
 sampled with `ss` inside each container network namespace to convert cwnd
 from segments to bytes.
 

@@ -1,3 +1,9 @@
+/**
+ * Express application factory. Configures CORS from CORS_ORIGIN, JSON body
+ * parsing, a static /video route for running the API outside Docker, the /api
+ * router and the /health probe used by the Docker health check.
+ */
+
 const express = require("express");
 const cors = require("cors");
 const { videoDir } = require("../constants/paths");

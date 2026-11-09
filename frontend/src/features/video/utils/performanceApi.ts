@@ -1,3 +1,9 @@
+/**
+ * Resource Timing helpers. Maps nextHopProtocol to an HTTP version label,
+ * detects the protocol of media requests, reads TTFB and reports the
+ * connection type from the Network Information API.
+ */
+
 export function formatNextHopProtocol(protocol?: string): string {
   const normalized = protocol?.toLowerCase() ?? "";
   if (normalized.startsWith("h3") || normalized.includes("quic")) {

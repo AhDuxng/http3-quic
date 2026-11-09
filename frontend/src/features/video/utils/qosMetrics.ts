@@ -1,3 +1,10 @@
+/**
+ * Pure QoS calculations per segment request: bytes and duration, download
+ * speed, payload rate, Resource Timing size delta, download-time variation,
+ * TTFB, connection setup time, failure or abandon rate and recent average
+ * throughput.
+ */
+
 import type { MediaPlayerClass } from "dashjs";
 import { getTtfbFromPerformanceApi } from "./performanceApi";
 
@@ -114,7 +121,6 @@ export function calculateFragmentFailureOrAbandonRate(
   failedRequests: number,
   abandonedRequests: number,
 ) {
-  // Ty le request loi hoac bi bo, khong phai mat goi.
   return totalRequests > 0
     ? Math.round(((failedRequests + abandonedRequests) / totalRequests) * 10000) / 10000
     : 0;
@@ -134,7 +140,6 @@ export function calculateSegmentQosMetrics(args: {
     || getRequestTime(args.req?.requestStartDate)
     || getRequestTime(args.req?.firstByteDate);
   const bytesLoaded = getSegmentBytes(args.req, args.event, resourceTiming, args.dashHttpRequest);
-  // Do tu event de tinh ca thoi gian retry.
   const durationMs = args.wallDurationMs && args.wallDurationMs > 0
     ? Math.round(args.wallDurationMs)
     : getSegmentDurationMs(args.req, resourceTiming, requestStartMs, args.dashHttpRequest);
@@ -146,23 +151,18 @@ export function calculateSegmentQosMetrics(args: {
     ? resourceTiming.transferSize
     : 0;
 
-  // QoS: toc do tai segment = so byte nhan duoc * 8 / thoi gian tai segment.
   const downloadSpeedKbps = durationMs > 0 ? (bytesLoaded * 8) / durationMs : 0;
 
-  // Toc do payload ma hoa, khong phai goodput transport.
   const payloadRateKbps = durationMs > 0 ? (encodedBodySize * 8) / durationMs : downloadSpeedKbps;
 
-  // Delta Resource Timing khong phai overhead transport.
   const resourceTimingSizeDeltaBytes = transferSizeBytes > 0
     ? Math.max(0, transferSizeBytes - encodedBodySize)
     : 0;
 
-  // Bien thien thoi gian tai, khong phai jitter mang.
   const segmentDownloadTimeVariationMs = durationMs > 0 && args.previousSegmentDurationMs !== null
     ? Math.abs(durationMs - args.previousSegmentDurationMs)
     : 0;
 
-  // QoS: do tre HTTP/TTFB xap xi RTT o tang ung dung, khong phai RTT TCP/IP that.
   let ttfbMs = resourceTiming ? getPositiveDelta(resourceTiming.responseStart, resourceTiming.requestStart) : 0;
   if (ttfbMs === 0 && args.req?.url) ttfbMs = getTtfbFromPerformanceApi(args.req.url, args.resourcePrefix);
   const firstByteDate = args.dashHttpRequest?.tresponse ?? args.req?.firstByteDate;
@@ -171,14 +171,11 @@ export function calculateSegmentQosMetrics(args: {
     if (firstByteTime > requestStartMs) ttfbMs = Math.round(firstByteTime - requestStartMs);
   }
 
-  // QoS: thoi gian setup ket noi lay tu Resource Timing API khi server cho phep Timing-Allow-Origin.
   const dnsMs = resourceTiming ? getPositiveDelta(resourceTiming.domainLookupEnd, resourceTiming.domainLookupStart) : 0;
-  // Connect cua HTTP/3 la QUIC, khong phai TCP.
   const connectMs = resourceTiming ? getPositiveDelta(resourceTiming.connectEnd, resourceTiming.connectStart) : 0;
   const secureHandshakeMs = resourceTiming && resourceTiming.secureConnectionStart > 0
     ? getPositiveDelta(resourceTiming.connectEnd, resourceTiming.secureConnectionStart)
     : 0;
-  // Bo qua thoi gian xep hang va redirect.
   const setupStart = resourceTiming
     ? (resourceTiming.domainLookupStart > 0 ? resourceTiming.domainLookupStart : resourceTiming.connectStart)
     : 0;
@@ -215,7 +212,6 @@ export function calculateAverageThroughputKbps(
   segmentSamples: SegmentSample[],
   player: MediaPlayerClass,
 ) {
-  // QoS: throughput trung binh gan day = tong bit tai ve / tong thoi gian tai.
   if (segmentSamples.length > 0) {
     const totalBits = segmentSamples.reduce((sum, sample) => sum + sample.bits, 0);
     const totalDurationMs = segmentSamples.reduce((sum, sample) => sum + sample.durationMs, 0);

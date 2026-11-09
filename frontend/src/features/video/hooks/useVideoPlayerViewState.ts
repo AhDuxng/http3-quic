@@ -1,3 +1,9 @@
+/**
+ * Derived view state of a player: descriptor of the active network scenario
+ * and the quality profile label. Forwards protocol changes to the parent
+ * component.
+ */
+
 import { useEffect, useMemo } from "react";
 import type { Representation } from "dashjs";
 import type { NetworkScenario, NetworkScenarioId } from "../../../type/video";

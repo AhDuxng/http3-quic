@@ -1,38 +1,38 @@
-# Metric đo chất lượng mạng và trải nghiệm video streaming
+# Network QoS and Video QoE Metrics
 
-Tài liệu này tổng hợp các metric quan trọng khi đánh giá chất lượng truyền video, đặc biệt khi so sánh các giao thức hoặc cơ chế streaming như MPEG-DASH/dash.js, HLS/LL-HLS, WebRTC, SRT, RTMP hoặc các biến thể dùng TCP, QUIC, UDP.
+This document summarizes the key metrics for evaluating video delivery quality, particularly when comparing streaming protocols or mechanisms such as MPEG-DASH/dash.js, HLS/LL-HLS, WebRTC, SRT, RTMP, or variants running over TCP, QUIC, or UDP.
 
-Phần cuối tài liệu có code TypeScript mẫu cho `dash.js` để đo các metric có thể đo ở phía trình duyệt. Một số metric như packet loss thật, RTT thật ở tầng IP/TCP, VMAF/PSNR/SSIM, MOS hoặc Glass-to-Glass Latency thật không thể đo chính xác chỉ bằng `dash.js`; tài liệu sẽ ghi rõ cách đo đúng hoặc cách ước lượng.
+The final part of the document provides sample TypeScript code for `dash.js` to measure the metrics that can be observed on the browser side. Some metrics, such as true packet loss, true RTT at the IP/TCP layer, VMAF/PSNR/SSIM, MOS, or true Glass-to-Glass Latency, cannot be measured accurately with `dash.js` alone; for each of these, the document states the correct measurement method or an estimation approach.
 
 ---
 
-## 1. Nhóm metric đo chất lượng mạng
+## 1. Network Quality Metrics
 
-### 1.1. Throughput / Bandwidth thực tế
+### 1.1. Throughput / Effective Bandwidth
 
-**Throughput** là tốc độ dữ liệu tải xuống thực tế trong một khoảng thời gian.
+**Throughput** is the actual download data rate over a given time interval.
 
-Công thức:
+Formula:
 
 ```text
 Throughput = total_bytes_received * 8 / download_time
 ```
 
-Đơn vị thường dùng:
+Common units:
 
 ```text
 bps, Kbps, Mbps
 ```
 
-Trong streaming, throughput càng ổn định thì ABR càng dễ chọn chất lượng cao mà không gây rebuffering.
+In streaming, the more stable the throughput, the more easily the ABR algorithm can select high-quality representations without causing rebuffering.
 
-Với dash.js, có thể đo bằng:
+With dash.js, throughput can be measured using:
 
 ```ts
 player.getAverageThroughput('video')
 ```
 
-hoặc tự tính từ thời gian tải segment:
+or computed directly from segment download time:
 
 ```text
 segment_throughput_mbps = segment_bytes * 8 / segment_download_time_ms / 1000
@@ -40,56 +40,56 @@ segment_throughput_mbps = segment_bytes * 8 / segment_download_time_ms / 1000
 
 ---
 
-### 1.2. RTT / Latency tầng mạng
+### 1.2. RTT / Network-Layer Latency
 
-**RTT** là thời gian một gói tin đi từ client đến server rồi quay lại client.
+**RTT** is the time it takes for a packet to travel from the client to the server and back to the client.
 
 ```text
 RTT = time_response_arrives - time_request_sent
 ```
 
-Trong trình duyệt, JavaScript không đo được RTT IP/TCP thật. Với DASH qua HTTP, ta thường chỉ đo được **HTTP request latency / TTFB xấp xỉ**:
+In the browser, JavaScript cannot measure the true IP/TCP RTT. For DASH over HTTP, typically only an **approximate HTTP request latency / TTFB** can be measured:
 
 ```text
 HTTP_request_latency ≈ responseStart - requestStart
 ```
 
-Metric này vẫn hữu ích để so sánh độ phản hồi ban đầu giữa CDN/server/cấu hình mạng, nhưng không nên gọi là RTT thật nếu không đo bằng `ping`, `tcpdump`, `tcptrace`, QUIC logs hoặc server-side telemetry.
+This metric remains useful for comparing initial responsiveness across CDNs, servers, or network configurations, but it should not be called true RTT unless it is measured with `ping`, `tcpdump`, `tcptrace`, QUIC logs, or server-side telemetry.
 
 ---
 
 ### 1.3. Jitter
 
-**Jitter** là độ dao động của độ trễ.
+**Jitter** is the variation in latency.
 
-Với streaming real-time, jitter cao có thể gây vỡ tiếng, giật hình hoặc tăng yêu cầu buffer.
+In real-time streaming, high jitter can cause audio dropouts, video stutter, or larger buffering requirements.
 
-Cách tính đơn giản từ các mẫu latency liên tiếp:
+A simple calculation from consecutive latency samples:
 
 ```text
 jitter = average(abs(latency[i] - latency[i - 1]))
 ```
 
-Trong dash.js, jitter thường được ước lượng từ chuỗi HTTP request latency/TTFB hoặc thời gian tải fragment. Đây không phải RTP jitter chuẩn, nhưng dùng được để phân tích sự biến động mạng ở tầng ứng dụng.
+In dash.js, jitter is usually estimated from the series of HTTP request latency/TTFB values or fragment download times. This is not standard RTP jitter, but it can be used to analyze network variability at the application layer.
 
 ---
 
 ### 1.4. Packet Loss Rate
 
-**Packet Loss Rate** là tỷ lệ gói tin bị mất.
+**Packet Loss Rate** is the fraction of packets that are lost.
 
 ```text
 packet_loss_rate = lost_packets / total_packets
 ```
 
-Trong trình duyệt và dash.js, không thể đo packet loss thật ở tầng IP/TCP/QUIC vì browser không expose số packet bị mất hoặc số lần retransmission.
+In the browser and in dash.js, true packet loss at the IP/TCP/QUIC layer cannot be measured, because the browser does not expose the number of lost packets or retransmissions.
 
-Cách đo đúng:
+Correct measurement methods:
 
-- Dùng `tc -s qdisc`, `netem`, `tcpdump`, `Wireshark`, `ss`, QUIC logs hoặc server-side transport logs.
-- Với WebRTC có thể dùng `RTCPeerConnection.getStats()` để lấy `packetsLost`.
+- Use `tc -s qdisc`, `netem`, `tcpdump`, `Wireshark`, `ss`, QUIC logs, or server-side transport logs.
+- For WebRTC, `RTCPeerConnection.getStats()` can be used to obtain `packetsLost`.
 
-Với dash.js, chỉ nên dùng proxy metric:
+With dash.js, only a proxy metric should be used:
 
 ```text
 loss_proxy_rate = (failed_fragment_requests + abandoned_fragment_requests) / total_fragment_requests
@@ -99,9 +99,9 @@ loss_proxy_rate = (failed_fragment_requests + abandoned_fragment_requests) / tot
 
 ### 1.5. Connection Setup Time
 
-**Connection Setup Time** là thời gian thiết lập kết nối, gồm DNS, TCP handshake, TLS handshake và thời gian mở request đầu tiên.
+**Connection Setup Time** is the time required to establish a connection, including DNS resolution, the TCP handshake, the TLS handshake, and the time to issue the first request.
 
-Với Resource Timing API:
+Using the Resource Timing API:
 
 ```text
 dns_time = domainLookupEnd - domainLookupStart
@@ -110,69 +110,69 @@ secure_handshake_time = connectEnd - secureConnectionStart
 connection_setup_time = connectEnd - (domainLookupStart > 0 ? domainLookupStart : connectStart)
 ```
 
-Lưu ý: nếu CDN không bật `Timing-Allow-Origin`, nhiều field của Resource Timing có thể bằng `0` hoặc không đủ dữ liệu.
+Note: if the CDN does not enable `Timing-Allow-Origin`, many Resource Timing fields may be `0` or contain insufficient data.
 
 ---
 
-### 1.6. Encoded payload rate (xấp xỉ ở browser)
+### 1.6. Encoded Payload Rate (Browser-Side Approximation)
 
-**Goodput transport thật** là lượng dữ liệu hữu ích được truyền thành công mỗi giây sau khi loại toàn bộ overhead và retransmission. Browser không expose đủ bộ đếm QUIC/TLS/IP để đo chính xác đại lượng đó.
+**True transport goodput** is the amount of useful data successfully delivered per second after excluding all overhead and retransmissions. The browser does not expose enough QUIC/TLS/IP counters to measure this quantity accurately.
 
 ```text
 encoded_payload_rate = encoded_media_bytes * 8 / download_time
 ```
 
-Trong browser, nên ghi rõ đây là **encoded payload rate**:
+In the browser, this should be explicitly labeled as the **encoded payload rate**:
 
 ```text
-encoded_media_bytes ≈ encodedBodySize hoặc bytesLoaded
+encoded_media_bytes ≈ encodedBodySize or bytesLoaded
 ```
 
-Chỉ gọi là goodput khi có telemetry transport riêng đủ để trừ framing, header và retransmission.
+The term goodput should be used only when dedicated transport telemetry is available that is sufficient to subtract framing, headers, and retransmissions.
 
 ---
 
-### 1.7. Kích thước Resource Timing và transport overhead
+### 1.7. Resource Timing Sizes and Transport Overhead
 
-Không được dùng `transferSize - encodedBodySize` làm TCP/TLS/QUIC overhead. `transferSize` của Resource Timing có quy tắc làm mờ thông tin và có thể chứa giá trị ước lượng cố định; nó cũng không cung cấp byte retransmission hay đầy đủ framing ở tầng transport.
+`transferSize - encodedBodySize` must not be used as TCP/TLS/QUIC overhead. The Resource Timing `transferSize` is subject to information-obfuscation rules and may contain a fixed estimated value; it also does not provide retransmitted bytes or complete transport-layer framing.
 
 ```text
 resource_timing_size_delta = transferSize - encodedBodySize
 ```
 
-Có thể export riêng `transferSize`, `encodedBodySize` và delta để kiểm tra Resource Timing, nhưng không gắn nhãn delta là overhead. Muốn đo wire overhead phải dùng qlog/pcap hoặc telemetry phía server/transport.
+`transferSize`, `encodedBodySize`, and the delta may be exported separately to inspect Resource Timing behavior, but the delta must not be labeled as overhead. Measuring wire overhead requires qlog/pcap or server-side/transport telemetry.
 
 ---
 
-## 2. Nhóm metric đo trải nghiệm người dùng
+## 2. User Experience Metrics
 
 ### 2.1. Startup Delay / Video Startup Time
 
-**Startup Delay** là thời gian từ lúc người dùng nhấn Play đến khi frame đầu tiên xuất hiện.
+**Startup Delay** is the time from when the user presses Play until the first frame appears.
 
 ```text
 startup_delay = first_frame_time - play_request_time
 ```
 
-Đây là một trong các QoE metric quan trọng nhất với VOD và live streaming.
+This is one of the most important QoE metrics for both VOD and live streaming.
 
-Trong browser, có thể đo bằng:
+In the browser, it can be measured using:
 
-- `loadeddata`: frame đầu tiên đã load.
-- `playing`: video bắt đầu phát.
-- `requestVideoFrameCallback`: đo sát thời điểm frame đầu tiên được render.
+- `loadeddata`: the first frame has been loaded.
+- `playing`: the video has started playing.
+- `requestVideoFrameCallback`: measures closely the moment the first frame is rendered.
 
 ---
 
 ### 2.2. Rebuffering Ratio
 
-**Rebuffering Ratio** là tỷ lệ thời gian video bị dừng để nạp buffer.
+**Rebuffering Ratio** is the fraction of time during which video playback is stalled to refill the buffer.
 
 ```text
 rebuffering_ratio = total_rebuffering_time / total_session_time
 ```
 
-Một công thức thường dùng:
+A commonly used formula:
 
 ```text
 rebuffering_ratio = total_stall_time / (total_playing_time + total_stall_time)
@@ -182,53 +182,53 @@ rebuffering_ratio = total_stall_time / (total_playing_time + total_stall_time)
 
 ### 2.3. Rebuffering Frequency
 
-**Rebuffering Frequency** là số lần video bị dừng để nạp buffer trong một phiên xem.
+**Rebuffering Frequency** is the number of times playback stalls to refill the buffer during a viewing session.
 
 ```text
 rebuffering_frequency = number_of_rebuffering_events
 ```
 
-Trong browser, có thể đếm qua các event:
+In the browser, these can be counted via the following events:
 
 - `waiting`
 - `stalled`
 - dash.js `PLAYBACK_WAITING`
 - dash.js `PLAYBACK_STALLED`
 
-Nên loại trừ trạng thái chờ trước frame đầu tiên vì đó thuộc Startup Delay, không phải rebuffering.
+Waiting states before the first frame should be excluded, since they belong to Startup Delay rather than rebuffering.
 
 ---
 
 ### 2.4. Quality Switches / Bitrate Adaptations
 
-**Quality Switches** là số lần ABR đổi chất lượng video.
+**Quality Switches** is the number of times the ABR algorithm changes the video quality.
 
 ```text
 quality_switch_count = number_of_quality_change_rendered_events
 ```
 
-Có thể tách thành:
+This can be broken down into:
 
 ```text
 up_switches
 down_switches
 ```
 
-Down-switch đột ngột thường ảnh hưởng QoE mạnh hơn up-switch.
+Abrupt down-switches typically have a stronger impact on QoE than up-switches.
 
 ---
 
 ### 2.5. Average Bitrate / Average Resolution
 
-**Average Bitrate** là bitrate trung bình mà người dùng thật sự xem trong phiên.
+**Average Bitrate** is the average bitrate actually viewed by the user during the session.
 
-Công thức trung bình theo thời gian:
+Time-weighted average formula:
 
 ```text
 average_bitrate = sum(bitrate_i * duration_i) / sum(duration_i)
 ```
 
-Tương tự với độ phân giải:
+Similarly for resolution:
 
 ```text
 average_resolution_height = sum(height_i * duration_i) / sum(duration_i)
@@ -238,63 +238,63 @@ average_resolution_height = sum(height_i * duration_i) / sum(duration_i)
 
 ### 2.6. End-to-End Latency / Glass-to-Glass Latency
 
-**Glass-to-Glass Latency** là độ trễ từ lúc hình ảnh được camera ghi nhận đến lúc hiển thị trên màn hình người xem.
+**Glass-to-Glass Latency** is the delay from the moment an image is captured by the camera until it is displayed on the viewer's screen.
 
 ```text
 glass_to_glass_latency = display_time_at_receiver - capture_time_at_camera
 ```
 
-Với live DASH/dash.js, có thể lấy latency so với live edge:
+For live DASH with dash.js, the latency relative to the live edge can be obtained:
 
 ```ts
 player.getCurrentLiveLatency()
 ```
 
-Nhưng đây là **live latency của player**, không phải Glass-to-Glass latency thật. Để đo Glass-to-Glass chuẩn, cần:
+However, this is the **player's live latency**, not the true Glass-to-Glass latency. A standard Glass-to-Glass measurement requires one of the following:
 
-- Quay đồng hồ bấm giờ ở nguồn phát rồi so sánh với màn hình nhận.
-- Hoặc chèn timestamp ở encoder và đọc timestamp ở decoder.
-- Hoặc dùng PRFT/producer reference time nếu pipeline có hỗ trợ.
+- Filming a stopwatch at the source and comparing it with the receiving screen.
+- Inserting timestamps at the encoder and reading them at the decoder.
+- Using PRFT (Producer Reference Time) if the pipeline supports it.
 
 ---
 
 ### 2.7. Frame Drops / Frozen Frames
 
-**Frame Drops** là số frame bị bỏ qua.
+**Frame Drops** is the number of frames that are skipped.
 
-Trong browser:
+In the browser:
 
 ```ts
 video.getVideoPlaybackQuality().droppedVideoFrames
 ```
 
-**Frozen Frames** là các khoảng video đứng hình dù phiên phát chưa kết thúc. Có thể ước lượng bằng `requestVideoFrameCallback`: nếu thời gian thực trôi qua nhưng `mediaTime` không tăng trong một ngưỡng, coi là frozen frame interval.
+**Frozen Frames** are intervals during which the video image is frozen even though the playback session has not ended. They can be estimated with `requestVideoFrameCallback`: if wall-clock time elapses but `mediaTime` does not advance within a threshold, the interval is treated as a frozen-frame interval.
 
 ---
 
 ### 2.8. Audio/Video Sync
 
-**AV Sync** là độ lệch giữa âm thanh và hình ảnh.
+**AV Sync** is the offset between audio and video.
 
 ```text
 av_sync_error = audio_presentation_time - video_presentation_time
 ```
 
-Browser/dash.js thông thường không expose PTS audio và PTS video riêng biệt cho JavaScript. Muốn đo chuẩn cần instrumentation ở decoder/player native, WebCodecs pipeline, test stream chuyên dụng có beep/flash marker, hoặc phân tích bản ghi đầu ra.
+Browsers and dash.js generally do not expose separate audio and video PTS values to JavaScript. Standard measurement requires instrumentation in a native decoder/player, a WebCodecs pipeline, a dedicated test stream with beep/flash markers, or analysis of a recording of the output.
 
 ---
 
 ### 2.9. Objective Video Quality: VMAF, PSNR, SSIM
 
-Các metric này cần so sánh video gốc với video sau nén/truyền tải.
+These metrics require comparing the original video with the video after compression/delivery.
 
-- **VMAF**: metric do Netflix phát triển, sát cảm nhận thị giác hơn PSNR/SSIM trong nhiều trường hợp.
-- **PSNR**: đo sai khác tín hiệu theo công thức toán học.
-- **SSIM**: đo độ tương đồng cấu trúc hình ảnh.
+- **VMAF**: a metric developed by Netflix that, in many cases, correlates more closely with visual perception than PSNR/SSIM.
+- **PSNR**: measures signal distortion using a mathematical formula.
+- **SSIM**: measures the structural similarity of images.
 
-Không thể tính chuẩn chỉ từ dash.js trong browser vì cần file video gốc và bản video đã nhận/ghi lại.
+These cannot be computed in a standard way from dash.js in the browser alone, because both the original video file and the received/recorded video are required.
 
-Ví dụ đo bằng FFmpeg:
+Example measurements with FFmpeg:
 
 ```bash
 ffmpeg -i distorted.mp4 -i reference.mp4 \
@@ -314,27 +314,27 @@ ffmpeg -i distorted.mp4 -i reference.mp4 \
 
 ### 2.10. MOS
 
-**MOS - Mean Opinion Score** là điểm chủ quan do người thật chấm, thường từ 1 đến 5.
+**MOS (Mean Opinion Score)** is a subjective score assigned by human viewers, typically on a scale from 1 to 5.
 
 ```text
 MOS = average(user_scores)
 ```
 
-Không thể tự động đo MOS chỉ bằng player. Có thể thu thập bằng form đánh giá sau phiên xem.
+MOS cannot be measured automatically by the player alone. It can be collected through a rating form shown after the viewing session.
 
 ---
 
-## 3. Metric đặc thù khi so sánh giao thức
+## 3. Protocol-Comparison-Specific Metrics
 
-### 3.1. So sánh TCP, QUIC, UDP và HOL Blocking
+### 3.1. Comparing TCP, QUIC, UDP, and HOL Blocking
 
-Khi mất gói:
+Under packet loss:
 
-- TCP có thể bị Head-of-Line blocking ở tầng transport: dữ liệu đến sau phải chờ dữ liệu bị mất được retransmit.
-- QUIC loại bỏ HOL blocking giữa các stream ở tầng transport, nhưng stream đơn vẫn có thứ tự dữ liệu riêng.
-- UDP-based protocols như WebRTC/SRT thường có cơ chế riêng để cân bằng giữa mất gói, retransmission, FEC, jitter buffer và latency.
+- TCP may suffer from head-of-line blocking at the transport layer: data arriving later must wait until the lost data has been retransmitted.
+- QUIC eliminates HOL blocking between streams at the transport layer, but each individual stream still preserves its own data ordering.
+- UDP-based protocols such as WebRTC/SRT usually have their own mechanisms to balance packet loss, retransmission, FEC, jitter buffering, and latency.
 
-Khi so sánh, nên đo đồng thời:
+When comparing, the following should be measured together:
 
 ```text
 packet_loss
@@ -351,67 +351,67 @@ end_to_end_latency
 
 ### 3.2. Recovery Time from Packet Loss / Network Impairment
 
-Metric này đo thời gian hệ thống phục hồi sau khi mạng xấu.
+This metric measures the time the system takes to recover after network conditions degrade.
 
-Ví dụ:
+Example:
 
 ```text
 recovery_time = time_quality_back_to_baseline - time_network_impairment_started
 ```
 
-Điều kiện "phục hồi" nên định nghĩa rõ:
+The "recovered" condition should be clearly defined, for example:
 
-- Bitrate quay lại ít nhất 90% baseline.
-- Buffer level quay lại trên ngưỡng an toàn, ví dụ 10 giây.
-- Không còn rebuffering trong một khoảng, ví dụ 15 giây.
-- Live latency quay lại gần target với low-latency streaming.
+- Bitrate returns to at least 90% of the baseline.
+- Buffer level returns above a safety threshold, e.g., 10 seconds.
+- No rebuffering occurs over a given interval, e.g., 15 seconds.
+- For low-latency streaming, live latency returns close to the target.
 
 ---
 
-## 4. Bảng mapping metric với khả năng đo bằng dash.js
+## 4. Metric Mapping and Measurability with dash.js
 
-| Metric | dash.js/browser đo trực tiếp? | Cách đo |
+| Metric | Directly measurable by dash.js/browser? | Measurement method |
 |---|---:|---|
-| Throughput | Có | `player.getAverageThroughput()` hoặc tự tính từ fragment |
-| Encoded payload rate | Có | `encodedBodySize` hoặc `bytesLoaded` chia thời gian tải |
-| Transport goodput/overhead | Không | Cần qlog/pcap hoặc telemetry transport/server |
-| RTT thật | Không | Chỉ đo HTTP latency/TTFB xấp xỉ |
-| Jitter | Gần đúng | Dao động của HTTP latency hoặc fragment download time |
-| Packet Loss | Không | Dùng network tool; dash.js chỉ có failure/abandon proxy |
-| Connection Setup Time | Có, nếu Resource Timing đủ dữ liệu | `PerformanceResourceTiming` |
-| Startup Delay | Có | `play` → callback đầu tiên của `requestVideoFrameCallback()`; `playing` chỉ là fallback xấp xỉ |
-| Rebuffering Ratio | Có | Tổng thời gian `waiting/stalled` sau khi đã bắt đầu phát |
-| Rebuffering Frequency | Có | Đếm số lần stall |
-| Quality Switches | Có | `QUALITY_CHANGE_RENDERED` |
-| Average Bitrate | Có | Tích phân bitrate theo thời gian phát |
-| End-to-End Latency thật | Không hoàn toàn | `getCurrentLiveLatency()` chỉ là live-edge latency |
-| Frame Drops | Có | `getVideoPlaybackQuality()` hoặc dash.js dropped frame metric |
-| Frozen Frames | Gần đúng | `requestVideoFrameCallback()` |
-| AV Sync | Không | Cần test stream/instrumentation riêng |
-| VMAF/PSNR/SSIM | Không trong dash.js | Đo offline bằng FFmpeg |
-| MOS | Không tự động | Thu thập đánh giá người dùng |
+| Throughput | Yes | `player.getAverageThroughput()` or computed from fragments |
+| Encoded payload rate | Yes | `encodedBodySize` or `bytesLoaded` divided by download time |
+| Transport goodput/overhead | No | Requires qlog/pcap or transport/server telemetry |
+| True RTT | No | Only approximate HTTP latency/TTFB can be measured |
+| Jitter | Approximate | Variation in HTTP latency or fragment download time |
+| Packet Loss | No | Use network tools; dash.js only provides a failure/abandon proxy |
+| Connection Setup Time | Yes, if Resource Timing data is sufficient | `PerformanceResourceTiming` |
+| Startup Delay | Yes | `play` → first `requestVideoFrameCallback()` callback; `playing` is only an approximate fallback |
+| Rebuffering Ratio | Yes | Total `waiting/stalled` time after playback has started |
+| Rebuffering Frequency | Yes | Count of stall events |
+| Quality Switches | Yes | `QUALITY_CHANGE_RENDERED` |
+| Average Bitrate | Yes | Integral of bitrate over playback time |
+| True End-to-End Latency | Not fully | `getCurrentLiveLatency()` is only live-edge latency |
+| Frame Drops | Yes | `getVideoPlaybackQuality()` or the dash.js dropped-frame metric |
+| Frozen Frames | Approximate | `requestVideoFrameCallback()` |
+| AV Sync | No | Requires a dedicated test stream/instrumentation |
+| VMAF/PSNR/SSIM | Not in dash.js | Measured offline with FFmpeg |
+| MOS | Not automatically | Collect user ratings |
 
 ---
 
-### 4.1. Quy ước dataset của ứng dụng
+### 4.1. Application Dataset Conventions
 
-- `TimestampUTC` luôn dùng ISO 8601 UTC, ví dụ `2026-08-24T04:20:31.125Z`.
-- `RepresentationId` lấy từ `FragmentRequest.representationId`. Không thay ID bằng quality index; quality index được lưu riêng ở `QualityIndex`.
-- `StartupDelay` được đo riêng cho mỗi replay, từ lúc yêu cầu phát đến frame video đầu tiên được render. `StartupDelayMethod` ghi `first-rendered-frame`; nếu trình duyệt không hỗ trợ callback frame thì ghi rõ loại fallback.
-- Bitrate, resolution và quality switch là video quality đã render. Switch được cộng dồn trong phiên, chỉ đếm sự kiện `QUALITY_CHANGE_RENDERED` có old/new representation khác nhau; lựa chọn quality khởi tạo không tính là switch.
-- QoS chỉ ghi request có `mediaType=video` và `type=MediaSegment`. MPD, audio và initialization segment không nằm trong dataset QoS hay mẫu số failure/abandon.
+- `TimestampUTC` always uses ISO 8601 UTC, e.g., `2026-08-24T04:20:31.125Z`.
+- `RepresentationId` is taken from `FragmentRequest.representationId`. The ID is not replaced with the quality index; the quality index is stored separately in `QualityIndex`.
+- `StartupDelay` is measured separately for each replay, from the playback request to the first rendered video frame. `StartupDelayMethod` records `first-rendered-frame`; if the browser does not support the frame callback, the specific fallback type is recorded explicitly.
+- Bitrate, resolution, and quality switches refer to the rendered video quality. Switches are accumulated over the session, counting only `QUALITY_CHANGE_RENDERED` events whose old and new representations differ; the initial quality selection is not counted as a switch.
+- QoS records only requests with `mediaType=video` and `type=MediaSegment`. The MPD, audio, and initialization segments are excluded from both the QoS dataset and the failure/abandon denominator.
 
 ---
 
-## 5. Code TypeScript đo QoS/QoE với dash.js
+## 5. TypeScript Code for Measuring QoS/QoE with dash.js
 
-### 5.1. Cài đặt
+### 5.1. Installation
 
 ```bash
 npm install dashjs
 ```
 
-HTML tối thiểu:
+Minimal HTML:
 
 ```html
 <video id="videoPlayer" controls></video>
@@ -493,7 +493,7 @@ interface MonitorSnapshot {
   droppedFrames: number | null;
   frozenFrameEvents: number;
 
-  // So sanh va phuc hoi
+  // Comparison and recovery
   recoveryTimeMs: number | null;
 }
 
@@ -506,7 +506,7 @@ function dateLikeToMs(value: unknown): number | null {
   if (value instanceof Date) return value.getTime();
 
   if (typeof value === 'number') {
-    // dash.js có thể dùng epoch ms hoặc performance-relative ms.
+    // dash.js may use epoch ms or performance-relative ms.
     return value;
   }
 
@@ -563,7 +563,7 @@ function extractBytesFromDashRequest(req: any): number {
 
   if (direct && direct > 0) return direct;
 
-  // dash.js HTTPRequest có thể có trace list; mỗi trace có thể chứa b[].
+  // A dash.js HTTPRequest may carry a trace list; each trace may contain b[].
   if (Array.isArray(req.trace)) {
     let total = 0;
     for (const trace of req.trace) {
@@ -643,16 +643,16 @@ export class DashMetricsMonitor {
   }
 
   /**
-   * Gọi hàm này ngay khi user bấm Play.
-   * Không nên chỉ dựa vào event play vì autoplay/browser policy có thể làm lệch mốc đo.
+   * Call this as soon as the user clicks Play.
+   * Do not rely solely on the play event, since autoplay/browser policy may skew the reference timestamp.
    */
   public markPlayRequested(): void {
     this.playRequestedAtMs = nowMs();
   }
 
   /**
-   * Đánh dấu thời điểm bắt đầu làm xấu mạng.
-   * Ví dụ: trước khi bật tc/netem packet loss/delay.
+   * Marks the moment network impairment begins.
+   * Example: right before enabling tc/netem packet loss/delay.
    */
   public markNetworkImpairmentStarted(): void {
     this.impairmentStartedAtMs = nowMs();
@@ -896,7 +896,7 @@ export class DashMetricsMonitor {
     const encodedPayloadRateMbps =
       downloadTimeMs > 0 ? (encodedPayloadBytes * 8) / downloadTimeMs / 1000 : 0;
 
-    // Delta Resource Timing, khong phai overhead transport.
+    // Resource Timing delta, not transport overhead.
     const resourceTimingSizeDeltaBytes =
       transferSize !== null && encodedBodySize !== null
         ? Math.max(0, transferSize - encodedBodySize)
@@ -957,7 +957,7 @@ export class DashMetricsMonitor {
   }
 
   private openRebufferingIfNeeded(): void {
-    // Không tính waiting trước lần phát đầu tiên là rebuffering.
+    // Do not count waiting before the first playback as rebuffering.
     if (this.firstPlayingAtMs === null) return;
     if (this.video.paused || this.video.ended || this.video.seeking) return;
 
@@ -1014,7 +1014,7 @@ export class DashMetricsMonitor {
     const elapsedMs = t - this.lastBitrateUpdateAtMs;
     this.lastBitrateUpdateAtMs = t;
 
-    // Chỉ cộng thời gian khi video đang phát thật.
+    // Accumulate time only while the video is actually playing.
     if (!this.video.paused && !this.video.ended && this.rebufferingStartedAtMs === null) {
       if (this.currentBitrateKbps !== null) {
         this.bitrateIntegralKbpsMs += this.currentBitrateKbps * elapsedMs;
@@ -1181,7 +1181,7 @@ export class DashMetricsMonitor {
 
 ---
 
-### 5.3. Cách dùng trong app TypeScript
+### 5.3. Usage in a TypeScript Application
 
 ```ts
 import * as dashjs from 'dashjs';
@@ -1196,7 +1196,7 @@ const metricsBox = document.querySelector('#metrics') as HTMLPreElement;
 const player = dashjs.MediaPlayer().create();
 player.initialize(video, manifestUrl, false);
 
-// Bật low latency nếu stream MPD hỗ trợ CMAF low latency.
+// Enable low latency if the MPD stream supports CMAF low latency.
 player.updateSettings({
   streaming: {
     delay: {
@@ -1260,8 +1260,8 @@ window.setInterval(() => {
   );
 }, 1000);
 
-// Ví dụ: trước khi bạn bật netem packet loss/delay ở máy test,
-// gọi hàm này để bắt đầu đo recovery time.
+// Example: before enabling netem packet loss/delay on the test machine,
+// call this function to start measuring recovery time.
 (document.querySelector('#impairmentBtn') as HTMLButtonElement | null)?.addEventListener('click', () => {
   monitor.markNetworkImpairmentStarted();
 });
@@ -1269,7 +1269,7 @@ window.setInterval(() => {
 
 ---
 
-## 6. Code đo MOS đơn giản ở frontend
+## 6. Simple Frontend Code for MOS Collection
 
 ```ts
 interface MosVote {
@@ -1303,9 +1303,9 @@ class MosCollector {
 
 ---
 
-## 7. Node.js TypeScript đo VMAF/PSNR/SSIM bằng FFmpeg
+## 7. Node.js TypeScript for Measuring VMAF/PSNR/SSIM with FFmpeg
 
-> Phần này chạy ở Node.js, không chạy trong browser. Cần cài FFmpeg có hỗ trợ `libvmaf`.
+> This section runs in Node.js, not in the browser. It requires FFmpeg built with `libvmaf` support.
 
 ```ts
 import { spawn } from 'node:child_process';
@@ -1370,40 +1370,40 @@ export async function computeSsim(reference: string, distorted: string, outputLo
 
 ---
 
-## 8. Gợi ý thiết kế thí nghiệm so sánh giao thức
+## 8. Experiment Design Recommendations for Protocol Comparison
 
-Khi so sánh HLS, LL-HLS, DASH/LL-DASH, WebRTC, SRT hoặc RTMP, nên thống nhất:
+When comparing HLS, LL-HLS, DASH/LL-DASH, WebRTC, SRT, or RTMP, the following should be standardized:
 
-### 8.1. Điều kiện mạng
+### 8.1. Network Conditions
 
-Ví dụ dùng Linux `tc/netem`:
+Example using Linux `tc/netem`:
 
 ```bash
 # Delay 100ms, jitter 20ms, packet loss 2%
 sudo tc qdisc add dev eth0 root netem delay 100ms 20ms loss 2%
 
-# Thay đổi điều kiện mạng
+# Change network conditions
 sudo tc qdisc change dev eth0 root netem delay 200ms 50ms loss 5%
 
-# Xóa cấu hình
+# Remove the configuration
 sudo tc qdisc del dev eth0 root
 ```
 
-### 8.2. Kịch bản đo
+### 8.2. Measurement Scenarios
 
-Mỗi giao thức nên chạy nhiều lần với cùng một nội dung:
+Each protocol should be run multiple times with the same content:
 
 ```text
 Protocol: DASH, LL-DASH, HLS, LL-HLS, WebRTC, SRT
 Network profile: stable, high RTT, high jitter, packet loss, bandwidth drop
-Run duration: 3-10 phút
-Repetitions: ít nhất 5-10 lần mỗi profile
+Run duration: 3-10 minutes
+Repetitions: at least 5-10 runs per profile
 Metrics: QoS + QoE
 ```
 
-### 8.3. Log bắt buộc
+### 8.3. Required Logs
 
-Nên lưu sample-level log:
+Sample-level logs should be recorded:
 
 ```json
 {
@@ -1425,35 +1425,35 @@ Nên lưu sample-level log:
 
 ---
 
-## 9. Lưu ý quan trọng khi diễn giải kết quả
+## 9. Important Considerations When Interpreting Results
 
-Không nên kết luận giao thức "tốt hơn" chỉ dựa trên một metric. Ví dụ:
+A protocol should not be concluded to be "better" on the basis of a single metric. For example:
 
-- Throughput cao nhưng rebuffering nhiều vẫn là QoE kém.
-- Latency thấp nhưng frame drop cao có thể không phù hợp cho nội dung cần chất lượng ổn định.
-- WebRTC có latency thấp nhưng có thể hy sinh chất lượng hình ảnh khi mạng xấu.
-- DASH/HLS có latency cao hơn nhưng thường ổn định hơn cho VOD và live streaming số lượng lớn.
-- LL-DASH/LL-HLS phụ thuộc rất mạnh vào CMAF chunk, CDN, encoder, segment duration, live delay và ABR configuration.
+- High throughput combined with frequent rebuffering still results in poor QoE.
+- Low latency combined with a high frame drop rate may be unsuitable for content that requires stable quality.
+- WebRTC achieves low latency but may sacrifice visual quality under poor network conditions.
+- DASH/HLS have higher latency but are generally more stable for VOD and large-scale live streaming.
+- LL-DASH/LL-HLS depend heavily on CMAF chunks, the CDN, the encoder, segment duration, live delay, and ABR configuration.
 
-Khi viết báo cáo, nên trình bày theo chuỗi nguyên nhân:
+When writing a report, results should be presented as a causal chain:
 
 ```text
 Network condition → Transport behavior → Player buffer/ABR behavior → QoE outcome
 ```
 
-Ví dụ:
+Example:
 
 ```text
-Khi packet loss tăng từ 0% lên 3%, HTTP latency và jitter tăng làm throughput estimation dao động.
-dash.js ABR phản ứng bằng cách giảm bitrate, dẫn đến số lần quality down-switch tăng.
-Nếu buffer không đủ, player phát sinh rebuffering, làm QoE giảm mặc dù average bitrate vẫn có thể ở mức trung bình.
+When packet loss increases from 0% to 3%, HTTP latency and jitter increase, causing throughput estimation to fluctuate.
+dash.js ABR responds by lowering the bitrate, leading to an increase in quality down-switches.
+If the buffer is insufficient, the player incurs rebuffering, degrading QoE even though the average bitrate may remain moderate.
 ```
 
 ---
 
-## 10. Checklist metric nên dùng cho bài so sánh streaming
+## 10. Metric Checklist for Streaming Comparison Studies
 
-### VOD / Live latency cao
+### VOD / High-Latency Live
 
 - Startup Delay
 - Rebuffering Ratio
@@ -1470,15 +1470,15 @@ Nếu buffer không đủ, player phát sinh rebuffering, làm QoE giảm mặc 
 ### Low-latency live
 
 - Live Latency
-- Glass-to-Glass Latency nếu đo được
+- Glass-to-Glass Latency, if measurable
 - Rebuffering Ratio
 - Frame Drops/Frozen Frames
 - Catch-up playback rate
 - Quality Switches
 - Recovery Time
 - Jitter
-- Packet loss từ network tool
-- AV Sync nếu có thiết bị/test stream phù hợp
+- Packet loss from network tools
+- AV Sync, if suitable equipment/test streams are available
 
 ### Real-time / WebRTC / SRT
 
@@ -1491,4 +1491,4 @@ Nếu buffer không đủ, player phát sinh rebuffering, làm QoE giảm mặc 
 - AV Sync
 - Bitrate adaptation
 - NACK/FEC/retransmission stats
-- MOS hoặc subjective score
+- MOS or subjective score

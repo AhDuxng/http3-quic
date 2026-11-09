@@ -1,3 +1,8 @@
+/**
+ * Keeps the replay-count input in sync with the player and accepts only non-
+ * negative integers.
+ */
+
 import { useCallback, useEffect, useState } from "react";
 
 export function useReplayControl(

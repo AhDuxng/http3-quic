@@ -1,3 +1,8 @@
+/**
+ * Pure QoE calculations: startup delay, quality-switch counts, FPS, time-
+ * weighted average bitrate, frozen-frame detection and rebuffering ratio.
+ */
+
 export type QualitySwitchDirection = "up" | "down" | "lateral" | "same" | "unknown";
 
 export interface FrameSample {
@@ -23,7 +28,6 @@ export interface QualitySwitchTotals {
 }
 
 export function calculateStartupDelayMs(playRequestedAtMs: number | null, nowMs = performance.now()) {
-  // QoE: do tre khoi phat = thoi diem frame dau tien hien thi - thoi diem nguoi dung bam play.
   return playRequestedAtMs === null ? 0 : Math.max(0, Math.round(nowMs - playRequestedAtMs));
 }
 
@@ -31,7 +35,6 @@ export function calculateQualitySwitchTotals(
   direction: QualitySwitchDirection,
   current: QualitySwitchTotals,
 ): QualitySwitchTotals {
-  // QoE: dem moi lan doi representation da render; up/down chi phan loai huong doi.
   if (direction !== "up" && direction !== "down" && direction !== "lateral") return current;
 
   return {
@@ -46,7 +49,6 @@ export function calculateFps(
   currentTime: number,
   previousSample: FrameSample | null,
 ) {
-  // QoE: FPS = so frame render them / do lech thoi gian phat.
   const totalFrames = playbackQuality?.totalVideoFrames ?? 0;
   if (!previousSample || currentTime <= previousSample.timeSec || totalFrames < previousSample.totalFrames) {
     return { fps: 0, nextSample: { timeSec: currentTime, totalFrames } };
@@ -65,7 +67,6 @@ export function calculateAverageBitrate(args: {
   bitrateIntegralKbpsSec: number;
   bitrateObservedSec: number;
 }) {
-  // Tinh bitrate theo thoi gian media chay.
   let bitrateIntegralKbpsSec = args.bitrateIntegralKbpsSec;
   let bitrateObservedSec = args.bitrateObservedSec;
 
@@ -97,7 +98,6 @@ export function calculateFrozenFrame(args: {
   isVideoAdvancing: boolean;
   currentFreezeEventCount: number;
 }) {
-  // Moi dot dung hinh chi dem mot lan, bo qua rebuffer.
   if (!args.isVideoAdvancing) {
     return {
       freezeEventCount: args.currentFreezeEventCount,
@@ -131,7 +131,6 @@ export function calculateFrozenFrame(args: {
 }
 
 export function calculateRebufferingRatio(totalPlaybackSec: number, stallAccumulatedMs: number) {
-  // QoE: ty le rebuffering = tong thoi gian stall / (thoi gian dang phat + tong thoi gian stall).
   const playbackMs = totalPlaybackSec * 1000;
   const measuredSessionMs = playbackMs + stallAccumulatedMs;
   return measuredSessionMs > 0

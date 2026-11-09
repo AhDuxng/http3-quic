@@ -1,3 +1,8 @@
+/**
+ * ESLint flat configuration for the frontend: JavaScript/JSX and
+ * TypeScript/TSX sources with the React Hooks and React Refresh rule sets.
+ */
+
 import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'

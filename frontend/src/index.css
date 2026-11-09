@@ -1,3 +1,5 @@
+/* Global styles: Tailwind CSS layers and base typography. */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

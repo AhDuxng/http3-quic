@@ -1,3 +1,9 @@
+/**
+ * Periodic metric sampler. Derives bitrate, throughput, FPS, frozen frames,
+ * quality switches and rebuffering ratio from dash.js and the video element,
+ * and stores the time-sampled QoE rows.
+ */
+
 import { useCallback, useMemo, useRef } from "react";
 import type { RefObject } from "react";
 import type { MediaPlayerClass, Representation } from "dashjs";
@@ -114,7 +120,6 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
     dashHttpRequest?: any,
     commit = true,
   ) => {
-    // Chi do request, khong do mat goi hay overhead transport.
     const segmentMetrics = calculateSegmentQosMetrics({
       req,
       event,
@@ -156,7 +161,6 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
   }, [protocolUrlFragment, updateStats]);
 
   const incrementQualitySwitch = useCallback((direction: QualitySwitchDirection = "unknown") => {
-    // QoE: dem representation da render; tach rieng so lan tang/giam.
     const totals = calculateQualitySwitchTotals(direction, {
       qualitySwitchCount: qualitySwitchCountRef.current,
       qualityUpSwitchCount: qualityUpSwitchCountRef.current,
@@ -187,11 +191,9 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
       const currentTime = video.currentTime ?? 0;
       const duration = video.duration ?? 0;
 
-      // QoE: tinh FPS tu do lech so frame render tren do lech thoi gian phat.
       const fpsResult = calculateFps(playbackQuality, currentTime, frameSampleRef.current);
       frameSampleRef.current = fpsResult.nextSample;
 
-      // QoS: tinh throughput trung binh tren cac segment vua tai gan day.
       const nowMs = Date.now();
       const recentSamples = segmentSamplesRef.current.filter((sample) => nowMs - sample.atMs <= 10_000);
       const avgThroughputKbps = calculateAverageThroughputKbps(recentSamples, player);
@@ -200,7 +202,6 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
       const protocolLabel = detectProtocol(protocolUrlFragment);
       const networkType = getNetworkType();
 
-      // QoE: tinh bitrate trung binh co trong so theo thoi gian xem that.
       const bitrateResult = calculateAverageBitrate({
         previousSample: bitrateSampleRef.current,
         currentBitrateKbps: statsRef.current.bitrateKbps,
@@ -212,7 +213,6 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
       bitrateObservedSecRef.current = bitrateResult.bitrateObservedSec;
       bitrateSampleRef.current = bitrateResult.nextSample;
 
-      // QoE: phat hien frozen frame xap xi khi video dang phat nhung media time gan nhu khong doi.
       const frozenResult = calculateFrozenFrame({
         previousSample: frozenSampleRef.current,
         currentTime,
@@ -235,7 +235,6 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
         markFirstFrame(performance.now(), "playhead-fallback");
       }
 
-      // QoE: tinh ty le rebuffering bang tong thoi gian stall chia cho tong thoi gian phien xem do duoc.
       const totalPlaybackTime = completedPlaybackTimeRef.current + currentTime;
       const rebufferingRatio = calculateRebufferingRatio(totalPlaybackTime, stallAccumulatedMs);
 
@@ -276,7 +275,6 @@ export function useStreamMetrics({ updateStats, statsRef, protocolUrlFragment }:
   }, [updateStats]);
 
   const beginReplay = useCallback(() => {
-    // Dat lai mau rieng cua moi replay.
     segmentSamplesRef.current = [];
     previousSegmentDurationRef.current = null;
     frameSampleRef.current = null;

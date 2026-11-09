@@ -1,3 +1,6 @@
+# Caddy configuration for production. Same routing as Caddyfile, but serves the
+# public DOMAIN with a certificate obtained automatically through ACME.
+
 {
     servers {
         protocols h1 h2 h3

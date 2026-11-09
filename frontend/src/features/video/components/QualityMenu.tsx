@@ -1,3 +1,8 @@
+/**
+ * Quality selector overlay. Switches between automatic ABR and a fixed DASH
+ * representation.
+ */
+
 import { memo, useMemo } from "react";
 import { MdHighQuality } from "react-icons/md";
 import type { Representation } from "dashjs";

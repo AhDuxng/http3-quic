@@ -1,3 +1,8 @@
+/**
+ * Hook that runs a callback when a pointer event happens outside the
+ * referenced element; used to close menus.
+ */
+
 import { useEffect, useRef } from "react";
 
 export function useClickOutside<T extends HTMLElement>(

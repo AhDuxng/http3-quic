@@ -1,3 +1,8 @@
+/**
+ * Auto-replay control. Sets how many times the stream is replayed for repeated
+ * measurements (0 means unlimited) and shows the progress.
+ */
+
 import { memo } from "react";
 import { FaRedo } from "react-icons/fa";
 

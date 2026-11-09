@@ -1,3 +1,8 @@
+/**
+ * Player constants: statistics polling interval, network log throttling
+ * interval and the initial StreamStats snapshot.
+ */
+
 import type { StreamStats } from "../type/dashPlayer";
 
 export const statsPollIntervalMs = 1000;

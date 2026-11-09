@@ -1,3 +1,9 @@
+/**
+ * Live telemetry grid of one player: resolution, rendered and average bitrate,
+ * throughput, payload rate, buffer level, FPS, dropped and frozen frames,
+ * startup delay, TTFB and segment download time.
+ */
+
 import { useMemo } from "react";
 import { MdLiveTv } from "react-icons/md";
 import type { StreamStats } from "../type/dashPlayer";

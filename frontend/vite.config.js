@@ -1,3 +1,9 @@
+/**
+ * Vite configuration. The development server (port 5173) proxies /api and the
+ * media paths to VITE_PROXY_TARGET (default https://localhost), so the UI can
+ * run with hot reload against a running proxy stack.
+ */
+
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 

@@ -1,3 +1,9 @@
+/**
+ * Video surface of a DASH player: the video element, protocol and replay
+ * overlays, the play overlay, the quality menu and the screen shown after the
+ * last replay completes.
+ */
+
 import { useCallback, useState } from "react";
 import type { RefObject } from "react";
 import type { Representation } from "dashjs";

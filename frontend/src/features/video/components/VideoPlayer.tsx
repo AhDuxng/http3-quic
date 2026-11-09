@@ -1,3 +1,9 @@
+/**
+ * Composite DASH player. Connects useDashPlayer to the video stage, telemetry,
+ * network simulation, replay and console panels, and exposes reset, play and
+ * pause to the parent through a ref.
+ */
+
 import { forwardRef, useImperativeHandle, useState } from "react";
 import { networkScenarios } from "../constants/networkScenarios";
 import { useDashPlayer } from "../hooks/useDashPlayer";

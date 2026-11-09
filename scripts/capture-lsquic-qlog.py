@@ -183,8 +183,6 @@ def convert(log_path, output, utc_offset_us):
                 except (ValueError, KeyError, IndexError, TypeError):
                     counts["bad_qlog_rx"] += 1
 
-    # pi_received uses CLOCK_MONOTONIC. The smallest log-minus-monotonic gap
-    # over matched packets maps it onto the log's wall clock.
     matched = []
     for cid, conn in connections.items():
         for event in conn.events:

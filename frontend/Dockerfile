@@ -1,3 +1,7 @@
+# Frontend image. Builds the React/Vite application with Node.js 20 and serves
+# the static bundle from nginx with a single-page-application fallback to
+# index.html.
+
 FROM node:20-alpine AS build
 
 WORKDIR /app

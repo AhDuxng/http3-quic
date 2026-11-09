@@ -1,3 +1,7 @@
+/**
+ * Translucent badge displayed on top of the video surface.
+ */
+
 import type { ReactNode } from "react";
 
 interface VideoOverlayBadgeProps {

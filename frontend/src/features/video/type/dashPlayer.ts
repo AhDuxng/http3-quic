@@ -1,3 +1,8 @@
+/**
+ * Type definitions of the DASH player: stream statistics, log entries, per-
+ * segment QoS records, time-sampled QoE rows and the useDashPlayer contract.
+ */
+
 import type { Representation } from "dashjs";
 import type { RefObject } from "react";
 import type { NetworkScenario, NetworkScenarioId } from "../../../type/video";

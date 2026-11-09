@@ -1,3 +1,8 @@
+/**
+ * Session setup wizard. Selects the view mode (one, two or three concurrent
+ * players) and the DASH segment duration (1, 2, 4 or 6 seconds).
+ */
+
 import { FaArrowLeft, FaClock, FaColumns, FaPlayCircle, FaThLarge } from "react-icons/fa";
 import type { SegmentSeconds, ViewMode } from "../constants/videoCatalog";
 import { segmentOptions, viewModes } from "../constants/videoCatalog";
@@ -22,9 +27,9 @@ const modeLabels = {
 };
 
 const modeDescriptions = {
-  1: "Một player chính với danh sách video ở bên phải.",
-  2: "Chọn hai video và phát song song để so sánh.",
-  3: "Hiển thị cả ba video cùng lúc.",
+  1: "One main player with the video list on the right.",
+  2: "Select two videos and play them side by side to compare.",
+  3: "Show all three videos at once.",
 };
 
 export function VideoSetupPanel({
@@ -43,13 +48,13 @@ export function VideoSetupPanel({
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-800 mb-5"
           >
             <FaArrowLeft className="w-3 h-3" />
-            Chọn lại chế độ xem
+            Choose view mode again
           </button>
 
           <div className="mb-5">
-            <h1 className="text-2xl font-extrabold text-slate-900">Chọn độ dài segment</h1>
+            <h1 className="text-2xl font-extrabold text-slate-900">Choose segment length</h1>
             <p className="text-sm text-slate-500 mt-1">
-              Mỗi video sẽ dùng manifest DASH tương ứng với segment đã chọn.
+              Each video will use the DASH manifest matching the selected segment.
             </p>
           </div>
 
@@ -76,9 +81,9 @@ export function VideoSetupPanel({
     <section className="min-h-[calc(100vh-5.5rem)] flex items-center justify-center">
       <div className="w-full max-w-5xl">
         <div className="mb-6">
-          <h1 className="text-3xl font-extrabold text-slate-900">Chọn chế độ xem video</h1>
+          <h1 className="text-3xl font-extrabold text-slate-900">Choose video view mode</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Video chưa được tải cho đến khi bạn chọn chế độ xem và segment.
+            Videos are not loaded until you choose a view mode and segment.
           </p>
         </div>
 

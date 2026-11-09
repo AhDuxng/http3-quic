@@ -1,3 +1,6 @@
+# Backend API image (Node.js 20, Express). iproute2 provides the tc binary used
+# for network emulation and dumb-init forwards signals to Node.
+
 FROM node:20-alpine
 
 RUN apk add --no-cache dumb-init iproute2 wget

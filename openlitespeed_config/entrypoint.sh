@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# OpenLiteSpeed container entrypoint. Installs the TLS certificate mounted at
+# /run/tls or generates a self-signed one for DOMAIN, switches the error log to
+# DEBUG when LSQUIC_QLOG_CAPTURE is true (for scripts/capture-lsquic-qlog.py)
+# and then starts the stock OpenLiteSpeed entrypoint.
+
 set -euo pipefail
 
 readonly cert_dir="/usr/local/lsws/conf/cert"
@@ -19,7 +24,6 @@ if [[ "${LSQUIC_QLOG_CAPTURE:-false}" == "true" ]]; then
   ' "${config_file}" > "${temp_config}"
   cat "${temp_config}" > "${config_file}"
   rm -f "${temp_config}"
-  # Debug log fills the container disk quickly; capture-lsquic-qlog.py keeps its own copy.
   (while sleep 30; do
     find /usr/local/lsws/logs -name 'error.log.*' -mmin +1 -delete
   done) &

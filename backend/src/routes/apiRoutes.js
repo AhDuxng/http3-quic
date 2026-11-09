@@ -1,3 +1,9 @@
+/**
+ * REST routes mounted under /api. POST /network-scenario applies a tc/netem
+ * profile; GET /protocol-info reports the protocol hints forwarded by the
+ * reverse proxy.
+ */
+
 const express = require("express");
 const { applyNetworkScenario } = require("../controllers/networkController");
 

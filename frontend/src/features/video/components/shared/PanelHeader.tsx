@@ -1,3 +1,8 @@
+/**
+ * Header bar (icon, title, metadata and actions) shared by the player side
+ * panels.
+ */
+
 import type { ReactNode } from "react";
 
 interface PanelHeaderProps {

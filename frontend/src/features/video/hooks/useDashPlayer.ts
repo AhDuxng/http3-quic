@@ -1,3 +1,11 @@
+/**
+ * Core dash.js integration hook. Creates and disposes of the MediaPlayer,
+ * tracks representations and quality selection, records per-segment QoS and
+ * time-sampled QoE from dash.js events, the Resource Timing API and the video
+ * element, applies network scenarios through the backend and drives automatic
+ * replays.
+ */
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MediaPlayer } from "dashjs";
 import type { MediaPlayerClass, QualityChangeRenderedEvent, Representation } from "dashjs";
@@ -37,7 +45,6 @@ function getFragmentTrackingKey(request: any) {
   const rawUrl = getRequestUrl(request);
   try {
     const url = new URL(rawUrl, window.location.href);
-    // Bo tham so thu nghiem de gom cac lan retry.
     url.searchParams.delete("exp_run");
     url.searchParams.delete("exp_req");
     return url.toString();

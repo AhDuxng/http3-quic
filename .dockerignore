@@ -1,3 +1,5 @@
+# Paths excluded from Docker build contexts that use the repository root.
+
 .git
 .env
 .env.*

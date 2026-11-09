@@ -1,3 +1,8 @@
+/**
+ * Immutable view of the backend environment variables (HOST, PORT,
+ * CORS_ORIGIN) with defaults for unset or invalid values.
+ */
+
 function getEnvString(name, fallback) {
   const value = process.env[name];
   if (typeof value === "string" && value.trim().length > 0) return value.trim();

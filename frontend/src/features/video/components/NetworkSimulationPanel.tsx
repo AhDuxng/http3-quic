@@ -1,3 +1,9 @@
+/**
+ * Network simulation panel. Lists the predefined tc/netem scenarios and a
+ * custom bandwidth, delay and loss form, and applies the selection through the
+ * backend.
+ */
+
 import { createElement, memo } from "react";
 import type { Representation } from "dashjs";
 import { FaNetworkWired, FaEdit, FaCheck } from "react-icons/fa";

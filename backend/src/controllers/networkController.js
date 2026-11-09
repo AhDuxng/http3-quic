@@ -1,3 +1,11 @@
+/**
+ * Network emulation controller. Applies a rate limit, delay (with normally
+ * distributed jitter of delay/4) and random loss to eth0 with Linux tc/netem,
+ * or removes every rule for the real-network scenario. The backend runs in the
+ * network namespace of the active reverse proxy, so the rules shape the egress
+ * traffic from the web server to the client.
+ */
+
 const { execSync } = require("child_process");
 
 function runCommand(command) {

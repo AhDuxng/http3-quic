@@ -1,3 +1,8 @@
+/**
+ * Shared types for the network emulation scenarios offered by the UI and sent
+ * to the backend.
+ */
+
 export type NetworkScenarioId =
   | "unconfigured"
   | "real_network"

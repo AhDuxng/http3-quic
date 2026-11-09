@@ -1,3 +1,8 @@
+/**
+ * Tailwind CSS configuration: source paths scanned for class names and the
+ * brand color palette.
+ */
+
 export default {
   content: [
     "./index.html",

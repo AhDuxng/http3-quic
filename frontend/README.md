@@ -1,16 +1,36 @@
-# React + Vite
+# NGIS Stream — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 single-page application that plays MPEG-DASH streams with dash.js, applies network profiles through the backend and records QoS/QoE metrics in the browser. See the [main README](../README.md) for the full system and the experiment procedure.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+React 19, Vite 7, Tailwind CSS 3, dash.js 5, TypeScript (type-checked by the editor and ESLint; the build is done by Vite).
 
-## React Compiler
+## Scripts
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm ci                                             # install dependencies
+VITE_PROXY_TARGET=https://localhost npm run dev    # dev server on http://localhost:5173
+npm run lint                                       # ESLint
+npm run build                                      # production bundle in dist/
+npm run preview                                    # serve dist/ locally
+```
 
-## Expanding the ESLint configuration
+The development server proxies `/api` and `/video` to `VITE_PROXY_TARGET` (default `https://localhost`), so a running Docker stack is needed for media and network emulation.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Source layout
+
+```text
+src/
+├── App.jsx                       Session setup, player grid, global controls
+├── main.jsx                      React entry point
+├── type/video.ts                 Network scenario types
+└── features/video/
+    ├── components/               Player, video stage, telemetry, network, replay and console panels
+    ├── constants/                Video catalog, network profiles, player constants
+    ├── hooks/                    dash.js integration (useDashPlayer), metric sampling, stall tracking
+    ├── type/                     Player, QoS and QoE record types
+    └── utils/                    QoS/QoE calculations, Resource Timing helpers, CSV export
+```
+
+Metric definitions are documented in [docs/METRICS.md](../docs/METRICS.md).

@@ -1,3 +1,9 @@
+# Caddy configuration for local runs. Enables HTTP/1.1, HTTP/2 and HTTP/3 with a
+# certificate from Caddy's internal CA, serves DASH media from /srv/video with
+# caching disabled and Timing-Allow-Origin set for the Resource Timing API,
+# proxies /api to the backend on the shared loopback and every other path to the
+# frontend container.
+
 {
     servers {
         protocols h1 h2 h3

@@ -1,3 +1,8 @@
+/**
+ * Serializers for exported measurement data: event log, per-segment QoS and
+ * time-sampled QoE CSV files, and the plain-text session report.
+ */
+
 import type {
   LogEntry,
   PlaybackQoeSample,
@@ -155,7 +160,7 @@ export function generateDetailedLog(params: DetailedLogParams): string {
   const manifestUrl = params.logs[0]?.manifestUrl ?? "—";
   const sections = [
     separator,
-    "  ADTUBE STREAM ANALYZER - MEASUREMENT LOG",
+    "  NGIS STREAM ANALYZER - MEASUREMENT LOG",
     `  Stream: ${params.streamTitle}`,
     `  Segment: ${segmentLabel}`,
     `  Manifest: ${manifestUrl}`,

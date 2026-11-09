@@ -1,3 +1,7 @@
+/**
+ * Centered play button rendered over the video surface.
+ */
+
 import type { ReactNode } from "react";
 
 interface PlayOverlayButtonProps {

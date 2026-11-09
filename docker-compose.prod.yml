@@ -1,35 +1,7 @@
-services:
-  custom:
-    profiles: ["custom"]
-    build:
-      context: .
-      dockerfile: custom_server/Dockerfile
-    container_name: custom_server
-    restart: unless-stopped
-    cap_add:
-      - NET_ADMIN
-    ports:
-      - "${HTTP_PORT:-80}:80/tcp"
-      - "${HTTPS_PORT:-443}:443/tcp"
-      - "${HTTPS_PORT:-443}:443/udp"
-    volumes:
-      - ./video:/srv/video:ro
-      - ./openlitespeed_config/certs:/run/tls:ro
-      - ./logs/custom-server:/var/log/custom-server
-      - custom_server_certs:/var/lib/custom-server/cert
-    environment:
-      - DOMAIN=${DOMAIN}
-      - PORT=${PORT:-3000}
-      - CUSTOM_MODE=${CUSTOM_MODE:-mpquic}
-      - CUSTOM_SCHEDULER=${CUSTOM_SCHEDULER:-default}
-      - CUSTOM_ADVERTISE_H3=${CUSTOM_ADVERTISE_H3:-true}
-      - RUN_ID=${RUN_ID:-}
-    command: ["--mode", "${CUSTOM_MODE:-mpquic}"]
-    depends_on:
-      - frontend
-    networks:
-      - app-network
+# Production Docker Compose stack for NGIS Stream (public DOMAIN, trusted TLS
+# certificates). Same topology as docker-compose.yml; Caddy uses Caddyfile.prod.
 
+services:
   caddy:
     profiles: ["caddy"]
     build:
@@ -37,8 +9,6 @@ services:
       dockerfile: Dockerfile
     container_name: caddy_server
     restart: unless-stopped
-    sysctls:
-      - net.ipv4.tcp_slow_start_after_idle=${TCP_SLOW_START_AFTER_IDLE:-1}
     cap_add:
       - NET_ADMIN
     ports:
@@ -67,8 +37,6 @@ services:
       dockerfile: Dockerfile
     container_name: openlitespeed_server
     restart: unless-stopped
-    sysctls:
-      - net.ipv4.tcp_slow_start_after_idle=${TCP_SLOW_START_AFTER_IDLE:-1}
     cap_add:
       - NET_ADMIN
     shm_size: 256mb
@@ -124,5 +92,4 @@ networks:
 volumes:
   caddy_data:
   caddy_runtime_config:
-  custom_server_certs:
   openlitespeed_certs:

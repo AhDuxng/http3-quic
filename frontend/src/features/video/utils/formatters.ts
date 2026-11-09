@@ -1,3 +1,7 @@
+/**
+ * Formatting helpers for timestamps, bitrates and playback time.
+ */
+
 export function formatTimestamp(date: Date): string {
   return date.toISOString();
 }
